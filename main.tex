@@ -14,9 +14,12 @@
 \usepackage{caption}
 \usepackage{subcaption}
 \usepackage{fancyhdr}
-\usepackage{lipsum}  % for demo text — remove in real documents
+\usepackage{listings}
+\usepackage{textcomp}
 
 % ── Page style ────────────────────────────────────────────────
+\setlength{\headheight}{14.5pt}
+\addtolength{\topmargin}{-2.5pt}
 \pagestyle{fancy}
 \fancyhf{}
 \rhead{\thepage}
@@ -35,96 +38,827 @@
 \newtheorem{lemma}[theorem]{Lemma}
 \newtheorem{definition}[theorem]{Definition}
 
+% ── Code listing style ───────────────────────────────────────
+\lstset{
+    language=Python,
+    basicstyle=\small\ttfamily,
+    keywordstyle=\color{blue!70!black},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+    captionpos=b,
+}
+
 % ── Title ─────────────────────────────────────────────────────
-\title{\textbf{My First LaTeX Document}\\[0.3em]
-       \large A Starter Template for VS Code + GitHub}
-\author{Your Name}
+\title{\textbf{ManiBench}\\[0.3em]
+       \large A Benchmark for Testing Visual-Logic Drift and Syntactic\\
+       Hallucinations in Manim Code Generation}
+\author{Oli, Nabin}
 \date{\today}
 
 % ══════════════════════════════════════════════════════════════
 \begin{document}
 \maketitle
+
+\begin{abstract}
+Traditional code-generation benchmarks like HumanEval and MBPP excel at testing logic and syntax, but they fall short when code must translate into dynamic, pedagogical visuals.
+We introduce \textsc{ManiBench}, a specialized benchmark designed to evaluate LLM performance in generating Manim~CE (Community Edition) code---a domain where temporal fidelity and version-aware API correctness are paramount.
+\textsc{ManiBench} addresses two critical failure modes prevalent in LLM outputs:
+\emph{Syntactic Hallucinations} (generating code that is grammatically valid Python but references non-existent Manim functions, outdated or deprecated APIs, undefined classes, or calls that break under specific library versions) and
+\emph{Visual-Logic Drift} (occurrences where generated visuals diverge from intended mathematical logic, such as missing events, incorrect causal relationships, timing errors, or the model struggling to animate a concept).
+The benchmark aims to collect 150--200 problems, launching with a pilot of 12~high-quality challenges across five difficulty levels.
+These span domains including calculus, linear algebra, probability, topology, and AI\@.
+Task types are uniquely structured into categories such as drift-sensitive transformations, debugging, version-conflict traps, and multi-scene narratives.
+To move beyond simple test-case-based checks, \textsc{ManiBench} employs a four-tier scoring framework:
+(1)~\emph{Executability} (Pass@1): the fraction of outputs running without exceptions or deprecated imports;
+(2)~\emph{Version-Conflict Error Rate}: the frequency of runs triggering mixed-API or legacy errors;
+(3)~\emph{Alignment Score}: the weighted fraction of required visual events that are both present and temporally accurate; and
+(4)~\emph{Coverage Score}: the density of pedagogical elements, including mathematical-to-visual mapping and numeric annotations.
+By formalizing the requirements for temporal and syntactic precision, \textsc{ManiBench} provides a foundational testbed for the next generation of automated educational content and visual-logic synthesis.
+\end{abstract}
+
+\noindent\textbf{Keywords:} Syntactic Hallucinations, Visual-Logic Drift, Manim~CE, Code Generation, Benchmarking
+
 \tableofcontents
 \newpage
 
-% ── Section 1 ─────────────────────────────────────────────────
+
+%% ═══════════════════════════════════════════════════════════════
 \section{Introduction}
+\label{sec:introduction}
 
-Welcome to your local \LaTeX{} environment! This setup gives you
-an \textbf{Overleaf-like experience} right inside VS Code:
-
-\begin{itemize}
-    \item \textbf{Auto-compile on save} — just press \texttt{Ctrl+S}
-    \item \textbf{Side-by-side PDF preview} — click the magnifying glass icon
-    \item \textbf{SyncTeX} — \texttt{Ctrl+Click} on the PDF to jump to source
-    \item \textbf{Git integration} — commit and push from the sidebar
-    \item \textbf{Spell \& grammar check} — powered by LTeX
+The rise of large language models (LLMs) has dramatically accelerated code-generation research.
+Benchmarks like HumanEval, MBPP, and APPS have become standard evaluation tools for assessing LLM coding ability.
+However, these benchmarks primarily focus on three criteria:
+\begin{itemize}[nosep]
+    \item \textbf{Logic correctness}: Does the code solve the algorithmic problem?
+    \item \textbf{Syntax validity}: Does the code parse and execute without errors?
+    \item \textbf{Output matching}: Do computed results match expected values?
 \end{itemize}
 
-% ── Section 2 ─────────────────────────────────────────────────
-\section{Mathematics}
+These criteria are insufficient for domains where code generates continuous, time-dependent visual outputs.
+Manim, a Python animation engine created by Grant Sanderson (3Blue1Brown), generates mathematical animations by composing scene objects, applying transformations, and controlling timing.
+A Manim script can be \emph{syntactically valid} yet produce:
+\begin{itemize}[nosep]
+    \item \textbf{Incorrect visual semantics}: an animation that moves in the wrong direction;
+    \item \textbf{Timing misalignments}: events that occur out of order or at wrong times;
+    \item \textbf{Pedagogical failure}: an animation that obscures rather than clarifies the concept.
+\end{itemize}
 
-Here's the famous Euler's identity:
+Additionally, Manim exists in two major versions:
+\begin{itemize}[nosep]
+    \item \textbf{Manim~CE (Community Edition)}: open-source, actively maintained, with a modern API;
+    \item \textbf{Manim~GL (3B1B's version)}: the original version, using some deprecated constructs, hand-optimized for performance.
+\end{itemize}
+
+LLMs frequently mix APIs from both versions or reference functions that have been moved or renamed, producing code that fails under specific library versions.
+
+
+\subsection{Contributions}
+\label{sec:contributions}
+
+\textsc{ManiBench} makes three key contributions:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Formalized Visual-Logic Metrics.}
+    We define an \emph{Alignment Score} and a \emph{Coverage Score} to capture whether generated animations match pedagogical intent, beyond mere syntactic validity.
+
+    \item \textbf{Version-Aware Evaluation.}
+    We explicitly test version-conflict errors and deprecated API usage, measuring whether code adheres to a specific Manim version's API contract.
+
+    \item \textbf{Curated Pilot Dataset.}
+    We provide 12~hand-crafted benchmark problems drawn from 3Blue1Brown's published videos, with detailed visual-event specifications and annotations.
+\end{enumerate}
+
+
+%% ═══════════════════════════════════════════════════════════════
+\section{Problem Definition}
+\label{sec:problem}
+
+\subsection{The Two Failure Modes}
+\label{sec:failure-modes}
+
+\subsubsection{Syntactic Hallucinations}
+
+An LLM generates code that:
+\begin{itemize}[nosep]
+    \item references non-existent classes (e.g., \texttt{VMobject} with incorrect spelling);
+    \item uses deprecated functions (e.g., \texttt{mobject.scale()} instead of \texttt{mobject.scale\_to\_fit\_width()});
+    \item calls methods with incorrect signatures;
+    \item mixes Manim~GL syntax with Manim~CE (e.g., using OpenGL-specific rendering calls in~CE).
+\end{itemize}
+
+\noindent\textbf{Example:}
+\begin{lstlisting}[caption={Syntactic hallucination examples.}]
+# HALLUCINATED: class does not exist
+circle = MCircle(color=BLUE)  # Should be Circle
+
+# HALLUCINATED: deprecated method
+circle.apply_matrix([[1, 0], [0, 1]])
+# CE removed in favor of apply_complex_function
+\end{lstlisting}
+
+\subsubsection{Visual-Logic Drift}
+
+An LLM generates code that:
+\begin{itemize}[nosep]
+    \item omits required visual events (e.g., gradient descent step without showing dot movement);
+    \item implements events in the wrong order (e.g., loss curve updates before parameter updates);
+    \item uses incorrect timing (animations too fast, pauses missing);
+    \item fails to show causal relationships (e.g., showing a result without showing the derivation).
+\end{itemize}
+
+\noindent\textbf{Example:}
+\begin{lstlisting}[caption={Visual-logic drift example.}]
+# DRIFTED: Gradient descent without showing step updates
+def construct(self):
+    # Shows loss curve but dot doesn't move downhill
+    loss_curve.animate.points = new_points
+    # Missing: dot.animate.move_to(new_point)
+\end{lstlisting}
+
+\subsection{Evaluation Challenges}
+\label{sec:challenges}
+
+\begin{description}[nosep]
+    \item[Subjectivity of ``correct.'']
+    What counts as a correct gradient descent animation?
+    Must the dot move along the loss surface?
+    Must the curve update dynamically?
+    Must the learning rate shrink?
+
+    \item[Version fragmentation.]
+    A script that passes in Manim~CE may fail in Manim~GL\@.
+    We must specify which version(s) the code targets.
+
+    \item[Temporal semantics.]
+    Unlike static code output (e.g., classification accuracy), animations have temporal semantics.
+    An event can be present but timed incorrectly, creating pedagogical failure.
+\end{description}
+
+
+%% ═══════════════════════════════════════════════════════════════
+\section{Benchmark Design}
+\label{sec:design}
+
+\subsection{Metric Definitions}
+\label{sec:metrics}
+
+\subsubsection{Metric~1: Executability (Pass@1)}
+
+\begin{definition}[Executability]
+The fraction of generated outputs that run without raising exceptions or using deprecated imports:
 \begin{equation}
-    e^{i\pi} + 1 = 0
+    \text{Executability} = \frac{\text{number of successful executions}}{\text{number of total attempts}}.
 \end{equation}
+\end{definition}
 
-And the quadratic formula:
+\noindent\textbf{Success criteria:}
+\begin{itemize}[nosep]
+    \item Script completes without runtime exception.
+    \item No deprecated imports detected (scanned via regex or AST analysis).
+    \item No warnings from Manim's deprecation system.
+\end{itemize}
+
+\noindent\textbf{Failure cases:}
+\begin{itemize}[nosep]
+    \item Import error (e.g., \texttt{from manim import NonExistent}).
+    \item Runtime \texttt{AttributeError} (e.g., \texttt{mobject.invalid\_method()}).
+    \item Type error (e.g., passing the wrong type to a function).
+    \item Unhandled exception during scene rendering.
+\end{itemize}
+
+\subsubsection{Metric~2: Version-Conflict Error Rate}
+
+\begin{definition}[Version-Conflict Error Rate]
+The frequency with which generated code triggers errors specific to version constraints:
 \begin{equation}
-    x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+    \text{VCER} = \frac{\text{number of mixed-API or legacy errors}}{\text{number of total attempts}}.
 \end{equation}
+\end{definition}
 
-\begin{theorem}[Pythagorean Theorem]
-    For a right triangle with legs $a$, $b$ and hypotenuse $c$:
-    \[ a^2 + b^2 = c^2 \]
-\end{theorem}
+\noindent\textbf{Tracked errors:}
+\begin{itemize}[nosep]
+    \item GL-specific syntax in CE code.
+    \item CE-only syntax in GL code.
+    \item Calls to renamed or moved functions.
+    \item Signature mismatches due to API evolution.
+\end{itemize}
 
-% ── Section 3 ─────────────────────────────────────────────────
-\section{Tables and Figures}
+\subsubsection{Metric~3: Alignment Score}
 
-\begin{table}[h]
+\begin{definition}[Alignment Score]
+The weighted fraction of required visual events that are both present and temporally accurate:
+\begin{equation}
+    \text{Alignment} = \frac{\sum_{i} w_i \cdot p_i \cdot t_i}{\sum_{i} w_i},
+\end{equation}
+where $w_i$ is the importance weight of event~$i$ ($0 \le w_i \le 1$), $p_i = 1$ if event~$i$ is present (0~otherwise), and $t_i = 1$ if event~$i$ occurs at the expected time (0~otherwise).
+\end{definition}
+
+\subsubsection{Metric~4: Coverage Score}
+
+\begin{definition}[Coverage Score]
+The density of pedagogical elements (mathematical explanation, visual mapping, numeric evidence):
+\begin{equation}
+    \text{Coverage} = \frac{\text{number of elements present}}{\text{number of required elements}}.
+\end{equation}
+\end{definition}
+
+Required elements depend on the problem domain and may include textual labels, annotations, formulas, color coding, consistent object representations, displayed numeric values, and logical scene organization.
+
+
+\subsection{Task Categories}
+\label{sec:categories}
+
+\textsc{ManiBench} organizes problems into five categories:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Direct Visualization (40\%).}
+    Prompt $\to$ Python code (classic code generation).
+    Difficulty levels~1--3.
+    Metric focus: Executability, Alignment Score.
+
+    \item \textbf{Drift-Sensitive (20\%).}
+    Given a script and a required temporal transformation, detect whether the visual output matches intent.
+    Difficulty levels~2--4.
+    Metric focus: Alignment Score, Coverage Score.
+
+    \item \textbf{Debugging (20\%).}
+    Broken code $\to$ fix (repair task).
+    Difficulty levels~2--4.
+    Metric focus: Executability, Alignment Score.
+
+    \item \textbf{Version-Conflict Traps (10\%).}
+    Code with tempting outdated syntax; evaluate whether the model recognizes version constraints.
+    Difficulty levels~3--5.
+    Metric focus: VCER, Executability.
+
+    \item \textbf{Multi-Scene Narrative (10\%).}
+    Hardest tier: multi-scene scripts combining multiple domains.
+    Difficulty levels~4--5.
+    Metric focus: all metrics.
+\end{enumerate}
+
+
+\subsection{Difficulty Levels}
+\label{sec:difficulty}
+
+\begin{description}[nosep]
+    \item[Level~1 (Trivial).]
+    Animate simple objects (circles, squares, text).
+    Expected executability: ${>}\,95\%$.
+
+    \item[Level~2 (Basic).]
+    Animate a transformation or a simple mathematical concept.
+    Expected executability: $80$--$90\%$.
+
+    \item[Level~3 (Intermediate).]
+    Combine multiple transformations; show a mathematical relationship.
+    Expected executability: $70$--$80\%$.
+
+    \item[Level~4 (Advanced).]
+    Multi-step derivation, temporal synchronization, pedagogical clarity.
+    Expected executability: $50$--$70\%$.
+
+    \item[Level~5 (Expert).]
+    Complex concept, multiple scenes, advanced Manim features.
+    Expected executability: $30$--$50\%$.
+\end{description}
+
+
+%% ═══════════════════════════════════════════════════════════════
+\section{Benchmark Dataset}
+\label{sec:dataset}
+
+\subsection{Pilot Dataset: 12 Problems}
+\label{sec:pilot}
+
+The pilot dataset includes 12~hand-curated problems drawn from 3Blue1Brown's published videos.
+Each problem includes:
+\begin{enumerate}[nosep]
+    \item a natural-language problem statement,
+    \item video source (YouTube link and timestamp),
+    \item required visual events with formal specifications,
+    \item difficulty level (1--5),
+    \item task category,
+    \item success criteria for Executability, Alignment, and Coverage, and
+    \item reference implementation notes (not shared with models; for human evaluation only).
+\end{enumerate}
+
+
+\subsubsection{Problem~1: Colliding Blocks Compute~$\pi$}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{6dTyOl1fmDo};
+Category: Drift-Sensitive, Multi-Scene;
+Difficulty: 4;
+Domain: Physics, Numerics.
+
+\medskip\noindent\textbf{Problem Statement.}
+Write Manim code to animate the collision of two blocks sliding on a frictionless surface.
+Block~A (mass~$M$) starts at rest.
+Block~B (mass~$m$) approaches from the left with velocity~$v_0$.
+After elastic collision, count the total number of collisions.
+If $m/M = 0.01$, exactly $\pi$ wall collisions occur.
+The animation must show:
+(1)~Block~A at $x = 10$, Block~B at $x = 0$ moving right;
+(2)~velocity vectors above each block;
+(3)~a collision counter incrementing at each collision;
+(4)~velocity updates after each collision (calculated via elastic collision formulas);
+(5)~the final state with Block~B at rest and Block~A moving away; and
+(6)~text displaying the collision count.
+
+\medskip\noindent\textbf{Required Visual Events} (weights in parentheses):
+blocks move and collide~(0.9);
+collision counter increments correctly~(0.8);
+velocity vectors update after collision~(0.7);
+final text displays collision count~(0.6).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.70$;
+Alignment~$\ge 0.70$;
+Coverage~$\ge 0.75$.
+
+
+\subsubsection{Problem~2: Gradient Descent---How Neural Networks Learn}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{IHZwWFHWa-w};
+Category: Direct Visualization, Drift-Sensitive;
+Difficulty: 3;
+Domain: Machine Learning, Calculus.
+
+\medskip\noindent\textbf{Problem Statement.}
+Create a Manim scene animating gradient descent on a 2D loss landscape.
+Show:
+(1)~a parametric surface $z = L(w_1, w_2)$;
+(2)~a dot starting at a high-loss location;
+(3)~at each step, compute $\nabla L$, move the dot in the direction of $-\nabla L$, and update a loss curve;
+(4)~5--10 steps of descent with diminishing step size;
+(5)~arrows indicating gradient direction; and
+(6)~axis labels $w_1$, $w_2$, and ``Loss.''
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+surface visualized~(0.8);
+dot at initial location~(0.8);
+gradient arrow shown and updated~(0.7);
+dot moves downhill~(0.9);
+loss curve plots historical values~(0.8);
+step size diminishes~(0.6).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.95$;
+Alignment~$\ge 0.75$;
+Coverage~$\ge 0.80$.
+
+
+\subsubsection{Problem~3: But What Is a Convolution?}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{KuXjwB4LzSA};
+Category: Direct Visualization, Drift-Sensitive;
+Difficulty: 3;
+Domain: Signal Processing, Linear Algebra.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate the convolution operation between a signal and a kernel.
+Show:
+(1)~a 1D signal plotted on a horizontal axis;
+(2)~a 1D kernel displayed as a sliding window;
+(3)~the window moving left-to-right along the signal;
+(4)~element-wise products highlighted at each position;
+(5)~the integral accumulating in a separate output graph; and
+(6)~the output graph building up point-by-point.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+signal visualized~(0.8);
+kernel visualized~(0.8);
+window moves through signal~(0.9, \emph{critical});
+product highlighted~(0.7);
+integral accumulates~(0.8);
+output graph builds dynamically~(0.8).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.90$;
+Alignment~$\ge 0.80$;
+Coverage~$\ge 0.75$.
+
+
+\subsubsection{Problem~4: Eigenvectors and Eigenvalues}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{PFDu9oVAE-g};
+Category: Direct Visualization;
+Difficulty: 4;
+Domain: Linear Algebra, Transformations.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate how eigenvectors behave under a $2 \times 2$ matrix transformation.
+Show:
+(1)~a 2D coordinate grid with basis vectors $\mathbf{e}_1$ and $\mathbf{e}_2$;
+(2)~a matrix~$A$ visualized as a grid deformation;
+(3)~most vectors rotate and change length;
+(4)~eigenvectors only change length (stay on the same line);
+(5)~color-coded eigenvectors;
+(6)~eigenvalues $\lambda_1$ and $\lambda_2$ displayed; and
+(7)~transformation applied smoothly over two seconds.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+grid visualized~(0.8);
+basis vectors highlighted~(0.7);
+transformation applied~(0.9);
+eigenvectors identified and colored~(0.8);
+eigenvalue labels shown~(0.7);
+eigenvectors remain collinear~(0.8).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.85$;
+Alignment~$\ge 0.75$;
+Coverage~$\ge 0.80$.
+
+
+\subsubsection{Problem~5: The Determinant}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{Ip3X9LOh2dk};
+Category: Direct Visualization;
+Difficulty: 2;
+Domain: Linear Algebra, Visualization.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate the geometric interpretation of the determinant.
+Show:
+(1)~a unit parallelogram defined by basis vectors;
+(2)~a $2 \times 2$ matrix applied to the parallelogram;
+(3)~smooth transformation;
+(4)~labels for original and new area; and
+(5)~the numerical value of $\det(A)$ updating during transformation.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+original parallelogram~(0.8);
+matrix displayed~(0.7);
+parallelogram transforms~(0.9);
+new area labeled~(0.8);
+$\det(A)$ value displayed~(0.8).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.95$;
+Alignment~$\ge 0.85$;
+Coverage~$\ge 0.90$.
+
+
+\subsubsection{Problem~6: The Central Limit Theorem}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{zeJD6dqJ5lo};
+Category: Direct Visualization, Drift-Sensitive;
+Difficulty: 3;
+Domain: Probability, Statistics.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate the Central Limit Theorem by showing how the distribution of sample means approaches a normal distribution.
+Show:
+(1)~a histogram of samples from an arbitrary distribution;
+(2)~repeated drawing of random samples with computed means;
+(3)~a second histogram morphing from flat to bell-shaped;
+(4)~a normal distribution overlay; and
+(5)~explanatory text.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+original distribution~(0.7);
+samples drawn~(0.7);
+sample means computed and plotted~(0.8);
+histogram of means builds~(0.9);
+histogram converges to normal shape~(0.8);
+normal curve overlay~(0.7).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.85$;
+Alignment~$\ge 0.75$;
+Coverage~$\ge 0.70$.
+
+
+\subsubsection{Problem~7: The Medical Test Paradox (Bayes' Theorem)}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{lG4VkPoG3ko};
+Category: Direct Visualization;
+Difficulty: 2;
+Domain: Probability, Bayes' Theorem.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate Bayes' theorem using the ``Bayes box'' visualization.
+Show:
+(1)~a rectangle divided into four quadrants representing joint probabilities;
+(2)~hypothetical counts populated;
+(3)~animated division showing test-positive counts;
+(4)~highlighted true-positive region;
+(5)~step-by-step calculation of $P(\text{sick} \mid +)$; and
+(6)~final probability with paradox explanation.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+rectangle divided~(0.8);
+populations labeled~(0.7);
+populations animated~(0.8);
+calculation shown step-by-step~(0.8);
+final probability displayed~(0.8).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.95$;
+Alignment~$\ge 0.80$;
+Coverage~$\ge 0.85$.
+
+
+\subsubsection{Problem~8: Visualizing the Chain Rule}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{YG15m2VwSjA};
+Category: Direct Visualization;
+Difficulty: 3;
+Domain: Calculus, Function Composition.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate the chain rule using function composition.
+Show two functions $g(x)$ and $f(u)$ where $y = f(g(x))$.
+Demonstrate how a small change $dx$ propagates through~$g$ to produce $du$, then through~$f$ to produce $dy$, yielding $\frac{d}{dx}[f(g(x))] = f'(g(x)) \cdot g'(x)$.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+function~$g$ plotted~(0.7);
+function~$f$ plotted~(0.7);
+input and output labeled~(0.7);
+small change $dx$ shown~(0.8);
+change propagates through~$g$~(0.8);
+change propagates through~$f$~(0.8);
+composition formula displayed~(0.7).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.85$;
+Alignment~$\ge 0.75$;
+Coverage~$\ge 0.75$.
+
+
+\subsubsection{Problem~9: Integration and the Fundamental Theorem}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{rfG8ce4nNh0};
+Category: Direct Visualization;
+Difficulty: 3;
+Domain: Calculus, Integration.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate the Fundamental Theorem of Calculus.
+Show $f(x)$ and $f'(x)$; animate the area under $f'(x)$ accumulating via a sweep from left to right; display a graph of the accumulated area equaling $f(x)$; and demonstrate that $\int_0^x f'(t)\,dt = f(x) - f(0)$.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+$f$ visualized~(0.8);
+$f'$ visualized~(0.8);
+sweep/accumulation animated~(0.9);
+accumulated area displayed dynamically~(0.8);
+Fundamental Theorem formula shown~(0.7).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.90$;
+Alignment~$\ge 0.80$;
+Coverage~$\ge 0.80$.
+
+
+\subsubsection{Problem~10: Taylor Series}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{3d6DsjIBzJ4};
+Category: Direct Visualization;
+Difficulty: 4;
+Domain: Calculus, Series.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate the Taylor series expansion of $e^x$ (or $\sin x$).
+Plot the original function in black.
+Progressively add partial sums $P_0(x),\, P_1(x),\, P_2(x),\, P_3(x),\,\ldots$ with distinct colors.
+Show numerical coefficients and a convergence message.
+Animate 5--8 terms.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+original function plotted~(0.8);
+partial sums $P_0, P_1, \ldots$ added progressively~(0.9);
+each term colored and labeled~(0.8);
+approximation improves visually~(0.8);
+convergence demonstrated~(0.8).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.80$;
+Alignment~$\ge 0.75$;
+Coverage~$\ge 0.80$.
+
+
+\subsubsection{Problem~11: The Hairy Ball Theorem}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{BHdbsHFs2P0};
+Category: Direct Visualization;
+Difficulty: 5;
+Domain: Topology, Vector Fields.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate the Hairy Ball Theorem: a continuous tangent vector field on the 2-sphere must vanish at least once.
+Show a 3D sphere with a tangent vector field, attempt continuous ``combing,'' and highlight the inevitable ``bald spot.''
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+sphere rendered in 3D~(0.9);
+vector field visualized~(0.9);
+combing attempted~(0.8);
+discontinuity evident~(0.8);
+bald spot highlighted~(0.7).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.70$;
+Alignment~$\ge 0.65$;
+Coverage~$\ge 0.60$.
+
+
+\subsubsection{Problem~12: The Windmill Problem}
+
+\noindent\textbf{Metadata:}
+Video~ID: \texttt{M64HUIJFTZM};
+Category: Drift-Sensitive, Multi-Scene;
+Difficulty: 4;
+Domain: Geometry, Combinatorics.
+
+\medskip\noindent\textbf{Problem Statement.}
+Animate the windmill problem: given $n$~points in general position, a rotating line sweeps continuously through at least two points.
+Show the line rotating, pivoting at geometrically correct moments, and completing a $180^\circ$ rotation.
+
+\medskip\noindent\textbf{Required Visual Events} (weights):
+points visualized~(0.8);
+line passes through two points~(0.9);
+line rotates~(0.9);
+pivot events at correct times~(0.8);
+two-point contact maintained~(0.8);
+$180^\circ$ rotation completed~(0.7).
+
+\medskip\noindent\textbf{Success Criteria:}
+Executability~$\ge 0.75$;
+Alignment~$\ge 0.70$;
+Coverage~$\ge 0.65$.
+
+
+%% ═══════════════════════════════════════════════════════════════
+\section{Evaluation Protocol}
+\label{sec:evaluation}
+
+\subsection{Workflow}
+\label{sec:workflow}
+
+\begin{enumerate}[nosep]
+    \item \textbf{Code Generation.} Prompt an LLM with the problem statement.
+    \item \textbf{Execution.} Run the generated code in Manim~CE (or GL, as specified).
+    \item \textbf{Metric Collection.}
+        Executability (binary); Version-Conflict Errors (binary); Alignment Score (manual or heuristic); Coverage Score (checklist-based).
+    \item \textbf{Aggregation.} Compute Pass@1, aggregate Alignment and Coverage.
+\end{enumerate}
+
+\subsection{Human Evaluation Protocol}
+\label{sec:human-eval}
+
+For Alignment and Coverage scores, we employ structured human evaluation:
+
+\begin{enumerate}[nosep]
+    \item Watch the rendered animation.
+    \item Check off each required visual event as present or absent.
+    \item Note timing: are events synchronized correctly?
+    \item Assess pedagogical clarity: does the animation explain the concept?
+    \item Provide Alignment Score ($0.0$--$1.0$) and Coverage Score ($0.0$--$1.0$).
+\end{enumerate}
+
+\noindent\textbf{Disagreement Resolution.}
+Two independent reviewers score each output.
+If disagreement exceeds~0.15, a third reviewer breaks the tie.
+We report inter-rater agreement via Krippendorff's~$\alpha$ or Cohen's~$\kappa$.
+
+
+%% ═══════════════════════════════════════════════════════════════
+\section{Preliminary Results (Pilot Study)}
+\label{sec:results}
+
+\noindent\textbf{Setup:}
+Models: GPT-4o, Claude~3.5 Sonnet.
+Prompting: zero-shot (single problem prompt, no examples).
+Manim version: CE\@.
+Trials: 3~per model $\times$ 12~problems $= 72$~runs.
+
+\begin{table}[ht]
     \centering
-    \caption{A sample table}
-    \begin{tabular}{lcc}
+    \caption{Pilot study results across 12~benchmark problems.
+    Executability is reported as the percentage of runs completing without error.
+    Alignment and Coverage are averaged over successful runs; ``--'' indicates no successful execution.}
+    \label{tab:results}
+    \small
+    \begin{tabular}{@{}lccccc@{}}
         \toprule
-        \textbf{Feature} & \textbf{Overleaf} & \textbf{VS Code + LaTeX Workshop} \\
+        \textbf{Problem} & \textbf{Diff.} & \textbf{Exec.\ (GPT-4o)} & \textbf{Exec.\ (Claude)} & \textbf{Avg Align.} & \textbf{Avg Cov.} \\
         \midrule
-        Auto-compile    & \checkmark & \checkmark \\
-        PDF preview     & \checkmark & \checkmark \\
-        Git integration & Limited    & Full       \\
-        Offline work    & \texttimes & \checkmark \\
-        Free            & Partial    & \checkmark \\
+        1. Colliding Blocks  & 4 & 67\% & 67\% & 0.52 & 0.58 \\
+        2. Gradient Descent   & 3 & 100\% & 100\% & 0.73 & 0.82 \\
+        3. Convolution        & 3 & 0\%  & 33\% & --   & --   \\
+        4. Eigenvectors       & 4 & 33\% & 33\% & 0.40 & 0.50 \\
+        5. Determinant        & 2 & 100\% & 100\% & 0.85 & 0.88 \\
+        6. CLT                & 3 & 0\%  & 33\% & --   & --   \\
+        7. Medical Test       & 2 & 100\% & 100\% & 0.78 & 0.85 \\
+        8. Chain Rule         & 3 & 67\% & 67\% & 0.60 & 0.68 \\
+        9. Integration        & 3 & 0\%  & 33\% & --   & --   \\
+        10. Taylor Series     & 4 & 33\% & 33\% & 0.35 & 0.42 \\
+        11. Hairy Ball        & 5 & 0\%  & 0\%  & --   & --   \\
+        12. Windmill          & 4 & 0\%  & 0\%  & --   & --   \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-% ── Section 4 ─────────────────────────────────────────────────
-\section{Getting Started with GitHub}
-
-\begin{enumerate}
-    \item Create a repository on \href{https://github.com}{GitHub}
-    \item Add the remote: \texttt{git remote add origin <URL>}
-    \item Stage, commit, and push:
-    \begin{verbatim}
-    git add .
-    git commit -m "Initial commit"
-    git push -u origin main
-    \end{verbatim}
+\noindent\textbf{Key Observations:}
+\begin{enumerate}[nosep]
+    \item \emph{Simple problems} (Determinant, Medical Test) achieve high executability (100\%) and alignment ($\ge 0.78$).
+    \item \emph{Complex problems} (Convolution, CLT, Integration, Hairy Ball) show low executability (0--33\%), suggesting API misunderstandings or missing pedagogical elements.
+    \item \emph{Drift events}: Problems requiring precise timing (Gradient Descent, Windmill) show lower alignment than coverage, indicating temporal synchronization issues.
+    \item \emph{Version conflicts}: No GL-specific syntax was detected in this pilot; both models avoided GL references.
 \end{enumerate}
 
-Or simply use the \textbf{Source Control} panel in VS Code's sidebar!
 
-% ── Section 5 ─────────────────────────────────────────────────
-\section{Useful Shortcuts}
+%% ═══════════════════════════════════════════════════════════════
+\section{Discussion}
+\label{sec:discussion}
 
-\begin{description}
-    \item[\texttt{Ctrl+S}] Save and auto-compile
-    \item[\texttt{Ctrl+Alt+V}] Open PDF preview
-    \item[\texttt{Ctrl+Click} on PDF] Jump to source (SyncTeX)
-    \item[\texttt{Ctrl+Shift+G}] Open Git panel
-    \item[\texttt{Ctrl+Space}] Trigger LaTeX IntelliSense
+\subsection{Why ManiBench Matters}
+
+Existing benchmarks (HumanEval, APPS) measure whether code produces correct \emph{output}.
+\textsc{ManiBench} measures whether code produces correct \emph{understanding}.
+This distinction is critical for educational tools, where a silent failure (wrong animation) is worse than a loud failure (runtime error).
+
+\subsection{Limitations and Future Work}
+
+\begin{enumerate}[nosep]
+    \item \textbf{Alignment Scoring} is currently manual.
+    Future work should explore automatic alignment detection via AST analysis or video-frame comparison.
+    \item \textbf{Pedagogical Validation.}
+    We do not yet validate whether animations actually teach the concept.
+    User studies with students could address this gap.
+    \item \textbf{Manim API Coverage.}
+    As Manim evolves, the benchmark should be versioned and updated accordingly.
+    \item \textbf{Scalability.}
+    Moving from 12 to 150+ problems requires annotation infrastructure and community contribution.
+\end{enumerate}
+
+\subsection{Broader Impact}
+
+\textsc{ManiBench} can be used to:
+\begin{itemize}[nosep]
+    \item evaluate LLM educational-content generation,
+    \item develop better prompting strategies for animation code,
+    \item identify systematic failure modes (e.g., models struggling with temporal synchronization), and
+    \item drive research into improving Manim API adoption in LLMs.
+\end{itemize}
+
+
+%% ═══════════════════════════════════════════════════════════════
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have introduced \textsc{ManiBench}, a specialized benchmark for evaluating Manim code generation.
+By formalizing metrics for syntactic correctness, version compliance, visual-logic alignment, and pedagogical coverage, \textsc{ManiBench} moves beyond simple test-case evaluation to assess whether generated animations actually communicate mathematical concepts.
+
+The 12-problem pilot dataset demonstrates both the opportunities (simple concepts: ${\sim}80\%$ alignment) and challenges (complex temporal reasoning: ${\sim}40\%$ alignment) in automated animation generation.
+With planned expansion to 150--200 problems, \textsc{ManiBench} will serve as a foundational resource for advancing LLM-driven educational content creation.
+
+
+%% ═══════════════════════════════════════════════════════════════
+%\section*{References}
+%\label{sec:references}
+% TODO: Add bibliography via BibTeX
+% \bibliographystyle{plain}
+% \bibliography{references}
+
+
+%% ═══════════════════════════════════════════════════════════════
+\appendix
+\section{Problem Annotation Template}
+\label{app:template}
+
+Each problem in \textsc{ManiBench} is annotated with the following structured metadata:
+
+\begin{description}[nosep]
+    \item[\texttt{problem\_id}:] unique identifier (e.g., \texttt{MB-001}).
+    \item[\texttt{title}:] descriptive title.
+    \item[\texttt{video\_id}:] YouTube video identifier.
+    \item[\texttt{category}:] task category (e.g., ``drift-sensitive, multi-scene'').
+    \item[\texttt{difficulty\_level}:] integer 1--5.
+    \item[\texttt{domain}:] mathematical domain(s).
+    \item[\texttt{prompt}:] full natural-language problem statement.
+    \item[\texttt{required\_visual\_events}:] list of events, each with an identifier, description, and weight.
+    \item[\texttt{coverage\_requirements}:] list of required pedagogical elements.
+    \item[\texttt{success\_criteria}:] minimum thresholds for executability, alignment, and coverage.
+    \item[\texttt{exemplar\_notes}:] guidance for human evaluators.
 \end{description}
-
-\lipsum[1] % Remove this line — it's just filler text for demo
 
 \end{document}
