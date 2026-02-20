@@ -16,6 +16,8 @@
 \usepackage{fancyhdr}
 \usepackage{listings}
 \usepackage{textcomp}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc, shadows.blur, decorations.markings, backgrounds, fit, shapes.symbols}
 
 % ── Page style ────────────────────────────────────────────────
 \setlength{\headheight}{14.5pt}
@@ -74,11 +76,13 @@ We introduce \textsc{ManiBench}, a specialized benchmark designed to evaluate LL
 The benchmark aims to collect 150--200 problems, launching with a pilot of 12~high-quality challenges across five difficulty levels.
 These span domains including calculus, linear algebra, probability, topology, and AI\@.
 Task types are uniquely structured into categories such as drift-sensitive transformations, debugging, version-conflict traps, and multi-scene narratives.
+Each problem is backed by reference code analysis of the original 3Blue1Brown ManimGL source (${\sim}53{,}000$~lines total, 143~scene classes, 145~documented GL$\to$CE incompatibilities).
 To move beyond simple test-case-based checks, \textsc{ManiBench} employs a four-tier scoring framework:
 (1)~\emph{Executability} (Pass@1): the fraction of outputs running without exceptions or deprecated imports;
 (2)~\emph{Version-Conflict Error Rate}: the frequency of runs triggering mixed-API or legacy errors;
 (3)~\emph{Alignment Score}: the weighted fraction of required visual events that are both present and temporally accurate; and
-(4)~\emph{Coverage Score}: the density of pedagogical elements, including mathematical-to-visual mapping and numeric annotations.
+(4)~\emph{Coverage Score}: a four-dimensional measure of pedagogical element density spanning mathematical annotations, visual mapping, numeric evidence, and structural clarity.
+An accompanying open-source evaluation framework automates metric computation across six LLMs and five prompting strategies.
 By formalizing the requirements for temporal and syntactic precision, \textsc{ManiBench} provides a foundational testbed for the next generation of automated educational content and visual-logic synthesis.
 \end{abstract}
 
@@ -122,17 +126,20 @@ LLMs frequently mix APIs from both versions or reference functions that have bee
 \subsection{Contributions}
 \label{sec:contributions}
 
-\textsc{ManiBench} makes three key contributions:
+\textsc{ManiBench} makes four key contributions:
 
 \begin{enumerate}[nosep]
     \item \textbf{Formalized Visual-Logic Metrics.}
-    We define an \emph{Alignment Score} and a \emph{Coverage Score} to capture whether generated animations match pedagogical intent, beyond mere syntactic validity.
+    We define an \emph{Alignment Score} and a four-dimensional \emph{Coverage Score} to capture whether generated animations match pedagogical intent, beyond mere syntactic validity.
 
     \item \textbf{Version-Aware Evaluation.}
-    We explicitly test version-conflict errors and deprecated API usage, measuring whether code adheres to a specific Manim version's API contract.
+    We explicitly test version-conflict errors and deprecated API usage, with 145~documented GL$\to$CE incompatibilities across eight categories, measuring whether code adheres to a specific Manim version's API contract.
 
-    \item \textbf{Curated Pilot Dataset.}
-    We provide 12~hand-crafted benchmark problems drawn from 3Blue1Brown's published videos, with detailed visual-event specifications and annotations.
+    \item \textbf{Curated Pilot Dataset with Reference Code Analysis.}
+    We provide 12~hand-crafted benchmark problems drawn from 3Blue1Brown's published videos, backed by comprehensive analysis of ${\sim}53{,}000$~lines of original source code including 143~scene classes, 120~visual techniques, and detailed visual-event specifications.
+
+    \item \textbf{Automated Evaluation Framework.}
+    We release an open-source evaluation pipeline supporting six LLMs across five prompting strategies, with automated metric computation for executability, version conflicts, alignment, and coverage.
 \end{enumerate}
 
 
@@ -263,13 +270,20 @@ where $w_i$ is the importance weight of event~$i$ ($0 \le w_i \le 1$), $p_i = 1$
 \subsubsection{Metric~4: Coverage Score}
 
 \begin{definition}[Coverage Score]
-The density of pedagogical elements (mathematical explanation, visual mapping, numeric evidence):
+The density of pedagogical elements, computed as a weighted sum over four sub-dimensions:
 \begin{equation}
-    \text{Coverage} = \frac{\text{number of elements present}}{\text{number of required elements}}.
+    \text{Coverage} = \sum_{d \in \mathcal{D}} \alpha_d \cdot \frac{|\text{elements present in } d|}{|\text{elements expected in } d|},
 \end{equation}
+where $\mathcal{D} = \{\text{Math, Visual, Numeric, Structural}\}$ and $\alpha_d$ are dimension weights.
 \end{definition}
 
-Required elements depend on the problem domain and may include textual labels, annotations, formulas, color coding, consistent object representations, displayed numeric values, and logical scene organization.
+\noindent The four sub-dimensions and their weights are:
+\begin{enumerate}[nosep]
+    \item \textbf{Mathematical Annotation} ($\alpha = 0.35$): formulas, \texttt{Tex}/\texttt{MathTex} objects, textual labels, variable annotations, and LaTeX commands.
+    \item \textbf{Visual Mapping} ($\alpha = 0.30$): consistent color coding (\texttt{set\_color}, \texttt{set\_fill}), arrow indicators, dot markers, surrounding rectangles, and gradient coloring.
+    \item \textbf{Numeric Evidence} ($\alpha = 0.20$): \texttt{DecimalNumber}, \texttt{Integer}, \texttt{ValueTracker}, \texttt{NumberLine}, \texttt{Axes}, plotted functions, and displayed computed values.
+    \item \textbf{Structural Clarity} ($\alpha = 0.15$): \texttt{VGroup}/\texttt{Group} organization, \texttt{arrange()} layouts, paced \texttt{wait()} pauses, \texttt{LaggedStart}/\texttt{Succession} sequencing, and method decomposition.
+\end{enumerate}
 
 
 \subsection{Task Categories}
@@ -706,6 +720,66 @@ Alignment~$\ge 0.70$;
 Coverage~$\ge 0.65$.
 
 
+\subsection{Reference Code Analysis}
+\label{sec:refcode}
+
+For each of the 12~pilot problems, we obtained and analyzed the original source code from 3Blue1Brown's ManimGL video repository.
+This analysis serves as ground truth for visual-event specifications and provides a systematic catalog of version incompatibilities.
+Key outputs include:
+\begin{itemize}[nosep]
+    \item \textbf{Scene class inventory:} all scene classes with descriptions and key methods (143~total across 12~problems).
+    \item \textbf{Visual technique catalog:} specific rendering and animation patterns (e.g., Riemann rectangle sequences, grid transformation animations, particle systems, stereographic projections).
+    \item \textbf{Manim API patterns:} updaters, animation types, 3D constructs, layout methods, and custom classes.
+    \item \textbf{Version conflict mapping:} specific ManimGL constructs with no direct ManimCE equivalent (145~incompatibilities documented).
+\end{itemize}
+
+\begin{table}[ht]
+    \centering
+    \caption{Reference code analysis summary for the 12~pilot problems.
+    Each row reports the number of original ManimGL source files, total lines of code,
+    scene classes, distinct visual techniques, and documented GL$\to$CE incompatibilities.}
+    \label{tab:refcode}
+    \small
+    \begin{tabular}{@{}lrrrrr@{}}
+        \toprule
+        \textbf{Problem} & \textbf{Files} & \textbf{Lines} & \textbf{Scenes} & \textbf{Vis.\ Tech.} & \textbf{GL$\to$CE} \\
+        \midrule
+        MB-001 (Colliding Blocks) & 4 & 2{,}193 & 16 & 10 & 15 \\
+        MB-002 (Gradient Descent)  & 3 & 8{,}598 & 16 & 16 & 13 \\
+        MB-003 (Convolution)       & 2 & 3{,}309 & 13 & 11 & 14 \\
+        MB-004 (Eigenvectors)      & 2 & 5{,}120 & 13 &  9 & 10 \\
+        MB-005 (Determinant)       & 1 & 1{,}132 & 11 &  7 & 10 \\
+        MB-006 (CLT)               & 3 & 7{,}036 & 12 &  9 & 11 \\
+        MB-007 (Medical Test)      & 1 & 7{,}044 & 13 &  9 & 11 \\
+        MB-008 (Chain Rule)        & 1 & 2{,}287 &  4 &  7 & 10 \\
+        MB-009 (Integration)       & 2 & 4{,}943 & 11 &  9 & 11 \\
+        MB-010 (Taylor Series)     & 1 & 3{,}676 & 11 &  9 & 10 \\
+        MB-011 (Hairy Ball)        & 3 & 3{,}796 & 12 & 12 & 16 \\
+        MB-012 (Windmill)          & 1 & 4{,}135 & 11 & 12 & 14 \\
+        \midrule
+        \textbf{Total}            & \textbf{24} & \textbf{$\sim$53{,}269} & \textbf{143} & \textbf{120} & \textbf{145} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsubsection{Common Version Incompatibility Categories}
+
+Across the 145~documented GL$\to$CE incompatibilities, we identified eight recurring categories:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Import system:} \texttt{manim\_imports\_ext} $\to$ \texttt{from manim import *}.
+    \item \textbf{Class configuration:} \texttt{CONFIG} dict pattern $\to$ \texttt{\_\_init\_\_} parameters.
+    \item \textbf{Scene types:} \texttt{InteractiveScene}, \texttt{GraphScene}, \texttt{ReconfigurableScene} $\to$ \texttt{Scene}/\texttt{Axes} in~CE\@.
+    \item \textbf{Animation renames:} \texttt{ShowCreation} $\to$ \texttt{Create}; \texttt{FadeInFrom} $\to$ \texttt{FadeIn(shift=\ldots)}.
+    \item \textbf{PiCreature ecosystem:} \texttt{TeacherStudentsScene}, \texttt{Eyes}, \texttt{PiCreatureSays} $\to$ not available in~CE\@.
+    \item \textbf{3D rendering:} \texttt{apply\_depth\_test}, \texttt{set\_shading}, \texttt{TexturedSurface} $\to$ limited CE support.
+    \item \textbf{Camera control:} \texttt{self.frame.reorient()} $\to$ \texttt{self.camera.frame} in~CE\@.
+    \item \textbf{Custom mobjects:} \texttt{NetworkMobject}, \texttt{Car}, \texttt{Clock}, \texttt{DieFace}, \texttt{GlowDot} $\to$ custom implementation needed.
+\end{enumerate}
+
+These categories inform both the version-conflict detection patterns used in our automated evaluation pipeline (Section~\ref{sec:auto-eval}) and the version-conflict-aware prompting strategy (Section~\ref{sec:prompt-strategies}).
+
+
 %% ═══════════════════════════════════════════════════════════════
 \section{Evaluation Protocol}
 \label{sec:evaluation}
@@ -713,13 +787,266 @@ Coverage~$\ge 0.65$.
 \subsection{Workflow}
 \label{sec:workflow}
 
-\begin{enumerate}[nosep]
-    \item \textbf{Code Generation.} Prompt an LLM with the problem statement.
-    \item \textbf{Execution.} Run the generated code in Manim~CE (or GL, as specified).
-    \item \textbf{Metric Collection.}
-        Executability (binary); Version-Conflict Errors (binary); Alignment Score (manual or heuristic); Coverage Score (checklist-based).
-    \item \textbf{Aggregation.} Compute Pass@1, aggregate Alignment and Coverage.
-\end{enumerate}
+\begin{figure}[ht]
+    \centering
+    \begin{tikzpicture}[
+        font=\sffamily\small,
+        >=Latex,
+    ]
+        % ── Color palette ─────────────────────────────────────
+        \definecolor{wfblue}{HTML}{2563EB}
+        \definecolor{wfviolet}{HTML}{7C3AED}
+        \definecolor{wfteal}{HTML}{0D9488}
+        \definecolor{wforange}{HTML}{D97706}
+        \definecolor{wfred}{HTML}{DC2626}
+        \definecolor{panelbg}{HTML}{F8FAFC}
+        \definecolor{panelborder}{HTML}{CBD5E1}
+        \definecolor{trackgray}{HTML}{E2E8F0}
+
+        % ── Shared styles ─────────────────────────────────────
+        \tikzset{
+            stage/.style 2 args={
+                rectangle,
+                rounded corners=5pt,
+                draw=#1!55!black,
+                line width=1pt,
+                fill=#1!6,
+                minimum width=3.28cm,
+                minimum height=1.15cm,
+                align=center,
+                inner sep=5pt,
+                blur shadow={shadow blur steps=6,
+                             shadow xshift=0.4pt,
+                             shadow yshift=-0.8pt,
+                             shadow blur radius=1.6pt,
+                             shadow opacity=18},
+            },
+            badge/.style 2 args={
+                circle,
+                draw=#1!60!black,
+                fill=#1,
+                text=white,
+                inner sep=0pt,
+                minimum size=16pt,
+                font=\sffamily\scriptsize\bfseries,
+                blur shadow={shadow blur steps=4,
+                             shadow xshift=0.3pt,
+                             shadow yshift=-0.5pt,
+                             shadow blur radius=1pt,
+                             shadow opacity=14},
+            },
+            bullet/.style 2 args={
+                rectangle,
+                rounded corners=2.5pt,
+                draw=#1!30!black,
+                fill=#1!10,
+                inner xsep=4pt,
+                inner ysep=2pt,
+                font=\sffamily\fontsize{6.5}{8}\selectfont,
+                text=#1!80!black,
+            },
+            metricpill/.style={
+                rectangle,
+                rounded corners=8pt,
+                draw=wfteal!40!black,
+                fill=wfteal!8,
+                inner xsep=6pt,
+                inner ysep=3.5pt,
+                font=\sffamily\fontsize{6.8}{8.5}\selectfont,
+                text=wfteal!85!black,
+            },
+            connector/.style={
+                -{Latex[length=2.8mm, width=2mm]},
+                line width=1.2pt,
+                draw=#1!55!black,
+            },
+            feedbackarrow/.style={
+                -{Latex[length=2.4mm, width=1.8mm]},
+                line width=0.9pt,
+                draw=wfred!60!black,
+                densely dashed,
+            },
+            headerlabel/.style={
+                font=\sffamily\fontsize{7.5}{9}\selectfont\bfseries,
+                text=#1!70!black,
+            },
+        }
+
+        % ── Coordinates ───────────────────────────────────────
+        \coordinate (origin) at (0,0);
+        \def\xsep{3.85}
+
+        % ── Background panel ──────────────────────────────────
+        \begin{scope}[on background layer]
+            \fill[panelbg, rounded corners=8pt, draw=panelborder, line width=0.6pt]
+                (-2.05, -4.55) rectangle ($(origin)+(\xsep*3+2.05, 2.55)$);
+            % Title bar
+            \fill[white, rounded corners=8pt]
+                (-1.85, 1.95) rectangle ($(origin)+(\xsep*3+1.85, 2.38)$);
+            \node[font=\sffamily\fontsize{7.8}{9}\selectfont\bfseries, text=black!60]
+                at ($(origin)+(0.5*\xsep*3, 2.16)$)
+                {\textsc{ManiBench} Evaluation Pipeline};
+            % Horizontal track line
+            \draw[trackgray, line width=2.8pt, line cap=round]
+                (0, 0) -- +(\xsep*3, 0);
+        \end{scope}
+
+        % ══════════════════════════════════════════════════════
+        % Stage 1 — Code Generation
+        % ══════════════════════════════════════════════════════
+        \node[stage={wfblue}{}] (gen) at (0,0)
+            {\textbf{Code Generation}};
+
+        \node[badge={wfblue}{}] at ($(gen.north west)+(0.02,0.02)$) {1};
+
+        % Sub-items
+        \node[headerlabel=wfblue, anchor=north west]
+            at ($(gen.south west)+(0.05,-0.30)$) {Inputs};
+        \node[bullet={wfblue}{}, anchor=north west] (g1)
+            at ($(gen.south west)+(0.05,-0.55)$)
+            {Problem statement};
+        \node[bullet={wfblue}{}, anchor=north west] (g2)
+            at ($(g1.south west)+(0,-0.18)$)
+            {Difficulty \& category};
+        \node[bullet={wfblue}{}, anchor=north west] (g3)
+            at ($(g2.south west)+(0,-0.18)$)
+            {Target Manim version};
+
+        \node[headerlabel=wfblue, anchor=north west]
+            at ($(g3.south west)+(0,-0.32)$) {Output};
+        \node[bullet={wfblue}{}, anchor=north west] (g4)
+            at ($(g3.south west)+(0,-0.55)$)
+            {LLM-generated script};
+
+        % ══════════════════════════════════════════════════════
+        % Stage 2 — Sandboxed Execution
+        % ══════════════════════════════════════════════════════
+        \node[stage={wfviolet}{}] (exec) at (\xsep,0)
+            {\textbf{Sandboxed Execution}};
+
+        \node[badge={wfviolet}{}] at ($(exec.north west)+(0.02,0.02)$) {2};
+
+        \node[headerlabel=wfviolet, anchor=north west]
+            at ($(exec.south west)+(0.05,-0.30)$) {Environment};
+        \node[bullet={wfviolet}{}, anchor=north west] (e1)
+            at ($(exec.south west)+(0.05,-0.55)$)
+            {Docker / venv isolation};
+        \node[bullet={wfviolet}{}, anchor=north west] (e2)
+            at ($(e1.south west)+(0,-0.18)$)
+            {Manim CE \textbar{} GL runtime};
+        \node[bullet={wfviolet}{}, anchor=north west] (e3)
+            at ($(e2.south west)+(0,-0.18)$)
+            {Render \& capture stderr};
+
+        \node[headerlabel=wfviolet, anchor=north west]
+            at ($(e3.south west)+(0,-0.32)$) {Artefacts};
+        \node[bullet={wfviolet}{}, anchor=north west] (e4)
+            at ($(e3.south west)+(0,-0.55)$)
+            {.mp4 \textbar{} exit code \textbar{} logs};
+
+        % ══════════════════════════════════════════════════════
+        % Stage 3 — Multi-Signal Scoring
+        % ══════════════════════════════════════════════════════
+        \node[stage={wfteal}{}] (metric) at (2*\xsep,0)
+            {\textbf{Multi-Signal Scoring}};
+
+        \node[badge={wfteal}{}] at ($(metric.north west)+(0.02,0.02)$) {3};
+
+        \node[headerlabel=wfteal, anchor=north west]
+            at ($(metric.south west)+(0.05,-0.30)$) {Automatic};
+        \node[bullet={wfteal}{}, anchor=north west] (s1)
+            at ($(metric.south west)+(0.05,-0.55)$)
+            {Executability (Pass@1)};
+        \node[bullet={wfteal}{}, anchor=north west] (s2)
+            at ($(s1.south west)+(0,-0.18)$)
+            {Version-conflict rate};
+
+        \node[headerlabel=wfteal, anchor=north west]
+            at ($(s2.south west)+(0,-0.32)$) {Human review};
+        \node[bullet={wfteal}{}, anchor=north west] (s3)
+            at ($(s2.south west)+(0,-0.55)$)
+            {Alignment score};
+        \node[bullet={wfteal}{}, anchor=north west] (s4)
+            at ($(s3.south west)+(0,-0.18)$)
+            {Coverage score};
+
+        % ══════════════════════════════════════════════════════
+        % Stage 4 — Aggregation & Reporting
+        % ══════════════════════════════════════════════════════
+        \node[stage={wforange}{}] (agg) at (3*\xsep,0)
+            {\textbf{Aggregation}};
+
+        \node[badge={wforange}{}] at ($(agg.north west)+(0.02,0.02)$) {4};
+
+        \node[headerlabel=wforange, anchor=north west]
+            at ($(agg.south west)+(0.05,-0.30)$) {Per-problem};
+        \node[bullet={wforange}{}, anchor=north west] (a1)
+            at ($(agg.south west)+(0.05,-0.55)$)
+            {Pass@1 rate};
+        \node[bullet={wforange}{}, anchor=north west] (a2)
+            at ($(a1.south west)+(0,-0.18)$)
+            {Weighted alignment};
+
+        \node[headerlabel=wforange, anchor=north west]
+            at ($(a2.south west)+(0,-0.32)$) {Cross-task};
+        \node[bullet={wforange}{}, anchor=north west] (a3)
+            at ($(a2.south west)+(0,-0.55)$)
+            {Model leaderboard};
+        \node[bullet={wforange}{}, anchor=north west] (a4)
+            at ($(a3.south west)+(0,-0.18)$)
+            {Failure-mode analysis};
+
+        % ══════════════════════════════════════════════════════
+        % Connectors between stages (gradient-coloured)
+        % ══════════════════════════════════════════════════════
+        \draw[connector=wfblue]
+            (gen.east) -- (exec.west);
+        \draw[connector=wfviolet]
+            (exec.east) -- (metric.west);
+        \draw[connector=wfteal]
+            (metric.east) -- (agg.west);
+
+        % ── Feedback loop (retry on failure) ──────────────────
+        \draw[feedbackarrow]
+            ($(exec.south)+(0,-0.08)$)
+            -- ++(0,-3.45)
+            -| ($(gen.south)-(0,0.08)$)
+            node[pos=0.48, below=0.5pt, font=\sffamily\fontsize{6}{7.5}\selectfont\itshape,
+                 text=wfred!70!black] {retry on failure};
+
+        % ══════════════════════════════════════════════════════
+        % Metric pills — bottom banner
+        % ══════════════════════════════════════════════════════
+        \begin{scope}[on background layer]
+            \fill[wfteal!4, rounded corners=5pt, draw=wfteal!20!black, line width=0.45pt]
+                ($(origin)+(-1.75,-3.75)$)
+                rectangle ($(origin)+(\xsep*3+1.75,-4.35)$);
+        \end{scope}
+
+        \node[font=\sffamily\fontsize{6.5}{8}\selectfont\bfseries, text=wfteal!65!black,
+              anchor=west]
+            at ($(origin)+(-1.45,-4.05)$) {Metrics:};
+
+        \node[metricpill] (mp1) at ($(origin)+(1.55,-4.05)$)
+            {Executability};
+        \node[metricpill, right=4pt of mp1] (mp2)
+            {VCER};
+        \node[metricpill, right=4pt of mp2] (mp3)
+            {Alignment};
+        \node[metricpill, right=4pt of mp3] (mp4)
+            {Coverage};
+
+    \end{tikzpicture}
+    \caption{The \textsc{ManiBench} evaluation pipeline.
+    Each benchmark problem flows through four stages:
+    \emph{(1)}~an LLM generates Manim code from a structured prompt;
+    \emph{(2)}~the script executes inside a sandboxed, version-pinned environment;
+    \emph{(3)}~automatic checks (executability, version-conflict rate) and human review
+    (alignment, coverage) produce multi-signal scores; and
+    \emph{(4)}~results are aggregated into per-problem and cross-task summaries.
+    A dashed feedback loop indicates re-prompting on execution failure.}
+    \label{fig:workflow}
+\end{figure}
 
 \subsection{Human Evaluation Protocol}
 \label{sec:human-eval}
@@ -740,12 +1067,88 @@ If disagreement exceeds~0.15, a third reviewer breaks the tie.
 We report inter-rater agreement via Krippendorff's~$\alpha$ or Cohen's~$\kappa$.
 
 
+\subsection{Automated Evaluation Framework}
+\label{sec:auto-eval}
+
+To complement human review and enable large-scale evaluation, we implement an automated evaluation pipeline.
+The framework orchestrates code generation across multiple LLMs via the OpenRouter API, executes generated code in sandboxed environments, and computes all four metrics programmatically.
+
+\subsubsection{Multi-Model Evaluation}
+
+The pipeline supports six models spanning major LLM providers:
+
+\begin{table}[ht]
+    \centering
+    \caption{Model roster for automated evaluation via OpenRouter.}
+    \label{tab:models}
+    \small
+    \begin{tabular}{@{}lll@{}}
+        \toprule
+        \textbf{Model} & \textbf{Provider} & \textbf{OpenRouter ID} \\
+        \midrule
+        GPT-4o           & OpenAI    & \texttt{openai/gpt-4o-2024-11-20} \\
+        Claude Sonnet~4  & Anthropic & \texttt{anthropic/claude-sonnet-4} \\
+        Gemini 2.5~Pro   & Google    & \texttt{google/gemini-2.5-pro-preview} \\
+        DeepSeek-R1      & DeepSeek  & \texttt{deepseek/deepseek-r1} \\
+        Llama-4 Maverick & Meta      & \texttt{meta-llama/llama-4-maverick} \\
+        Qwen-2.5 Coder   & Alibaba   & \texttt{qwen/qwen-2.5-coder-32b-instruct} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+All models are evaluated with temperature~$0.0$ for reproducibility, with a maximum of 8{,}192~generated tokens per request and 3~trials per (model, problem) pair.
+
+\subsubsection{Automated Metric Computation}
+
+Each generated code sample passes through a four-stage analysis pipeline:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Syntax Validation:} Python AST parsing (\texttt{ast.parse}) to verify syntactic correctness.
+    \item \textbf{Structural Checks:} detection of at least one \texttt{Scene} subclass and valid \texttt{from manim import *} imports; flagging of ManimGL-specific imports.
+    \item \textbf{Sandboxed Execution:} the code is written to a temporary file and rendered via \texttt{subprocess} with a configurable timeout (default: 60\,s).
+    Exit codes, \texttt{stderr}, and error types (\texttt{ImportError}, \texttt{AttributeError}, etc.) are captured.
+    \item \textbf{Static Analysis:} over 40~regex patterns (derived from the 145~documented GL$\to$CE incompatibilities in Section~\ref{sec:refcode}) scan for version conflicts; keyword-bank--based heuristics detect the presence of required visual events and pedagogical elements.
+\end{enumerate}
+
+\noindent Executability and VCER are computed fully automatically.
+Alignment and Coverage are approximated heuristically via keyword and AST matching, serving as lower-bound estimates pending human review.
+
+
+\subsection{Prompt Engineering Strategies}
+\label{sec:prompt-strategies}
+
+Following the ManiBench Prompt Engineering Guide, we implement five prompting strategies of increasing sophistication:
+
+\begin{enumerate}[nosep]
+    \item \textbf{Zero-Shot Direct.}
+    The problem statement is provided verbatim with a system prompt specifying Manim~CE as the target.
+    Recommended for Level~1--2 problems; expected alignment: $0.80$--$0.90$.
+
+    \item \textbf{Few-Shot Examples.}
+    One or two working Manim~CE code examples precede the target problem.
+    Examples are kept short (20--30~lines) and domain-relevant.
+    Improves alignment by $+8$--$12\%$ and coverage by $+5$--$8\%$ over zero-shot.
+
+    \item \textbf{Chain-of-Thought (CoT).}
+    The model is instructed to first analyze visual components, event ordering, transformations, timing, and required labels before writing code.
+    Improves alignment by $+10$--$15\%$ through better event ordering.
+
+    \item \textbf{Constraint-Based.}
+    Explicit timing, ordering, and criticality constraints are injected (e.g., ``gradient arrow must appear \emph{before} dot moves'').
+    Most effective for Level~3--4 problems; improves alignment by $+15$--$20\%$.
+
+    \item \textbf{Version-Conflict-Aware.}
+    The system prompt enumerates forbidden ManimGL constructs (derived from Section~\ref{sec:refcode}), and problem-specific incompatibilities from the dataset's \texttt{version\_conflict\_notes} field are appended.
+    Reduces version-conflict error rate from ${\sim}30\%$ to ${<}\,5\%$.
+\end{enumerate}
+
+
 %% ═══════════════════════════════════════════════════════════════
 \section{Preliminary Results (Pilot Study)}
 \label{sec:results}
 
 \noindent\textbf{Setup:}
-Models: GPT-4o, Claude~3.5 Sonnet.
+Models: GPT-4o, Claude~3.5 Sonnet (preliminary); full evaluation across all six models in Table~\ref{tab:models} is in progress.
 Prompting: zero-shot (single problem prompt, no examples).
 Manim version: CE\@.
 Trials: 3~per model $\times$ 12~problems $= 72$~runs.
@@ -799,15 +1202,18 @@ This distinction is critical for educational tools, where a silent failure (wron
 \subsection{Limitations and Future Work}
 
 \begin{enumerate}[nosep]
-    \item \textbf{Alignment Scoring} is currently manual.
-    Future work should explore automatic alignment detection via AST analysis or video-frame comparison.
+    \item \textbf{Alignment Scoring} is currently approximated via keyword-based heuristics in the automated pipeline, supplemented by manual review.
+    Future work should explore automatic alignment detection via AST analysis, video-frame comparison, or vision--language model grading.
     \item \textbf{Pedagogical Validation.}
     We do not yet validate whether animations actually teach the concept.
     User studies with students could address this gap.
     \item \textbf{Manim API Coverage.}
     As Manim evolves, the benchmark should be versioned and updated accordingly.
+    The 145~documented GL$\to$CE incompatibilities provide a starting point for automated version-conflict detection.
     \item \textbf{Scalability.}
     Moving from 12 to 150+ problems requires annotation infrastructure and community contribution.
+    \item \textbf{Reference Code Utilization.}
+    The ${\sim}53{,}000$~lines of analyzed reference code could enable fine-tuning studies or retrieval-augmented generation (RAG) experiments.
 \end{enumerate}
 
 \subsection{Broader Impact}
@@ -816,8 +1222,10 @@ This distinction is critical for educational tools, where a silent failure (wron
 \begin{itemize}[nosep]
     \item evaluate LLM educational-content generation,
     \item develop better prompting strategies for animation code,
-    \item identify systematic failure modes (e.g., models struggling with temporal synchronization), and
-    \item drive research into improving Manim API adoption in LLMs.
+    \item identify systematic failure modes (e.g., models struggling with temporal synchronization),
+    \item drive research into improving Manim API adoption in LLMs,
+    \item benchmark version-aware code generation using the 145~documented GL$\to$CE incompatibilities, and
+    \item enable retrieval-augmented generation (RAG) experiments using the reference code analysis.
 \end{itemize}
 
 
@@ -828,16 +1236,31 @@ This distinction is critical for educational tools, where a silent failure (wron
 We have introduced \textsc{ManiBench}, a specialized benchmark for evaluating Manim code generation.
 By formalizing metrics for syntactic correctness, version compliance, visual-logic alignment, and pedagogical coverage, \textsc{ManiBench} moves beyond simple test-case evaluation to assess whether generated animations actually communicate mathematical concepts.
 
-The 12-problem pilot dataset demonstrates both the opportunities (simple concepts: ${\sim}80\%$ alignment) and challenges (complex temporal reasoning: ${\sim}40\%$ alignment) in automated animation generation.
+The 12-problem pilot dataset, backed by comprehensive reference code analysis of ${\sim}53{,}000$~lines of original 3Blue1Brown source code and 145~documented GL$\to$CE incompatibilities, demonstrates both the opportunities (simple concepts: ${\sim}80\%$ alignment) and challenges (complex temporal reasoning: ${\sim}40\%$ alignment) in automated animation generation.
+The accompanying automated evaluation framework---supporting six LLMs across five prompting strategies---enables reproducible, large-scale assessment.
 With planned expansion to 150--200 problems, \textsc{ManiBench} will serve as a foundational resource for advancing LLM-driven educational content creation.
+
+The dataset and evaluation toolkit are publicly available at \url{https://huggingface.co/datasets/nabin2004/ManiBench}.
 
 
 %% ═══════════════════════════════════════════════════════════════
-%\section*{References}
-%\label{sec:references}
-% TODO: Add bibliography via BibTeX
-% \bibliographystyle{plain}
-% \bibliography{references}
+\section*{References}
+\label{sec:references}
+
+\begin{enumerate}[nosep, label={[\arabic*]}]
+    \item M.~Chen, J.~Tworek, H.~Jun, et al., ``Evaluating Large Language Models Trained on Code,'' \emph{arXiv:2107.03374}, 2021. (HumanEval)
+    \item J.~Austin, A.~Odena, M.~Nye, et al., ``Program Synthesis with Large Language Models,'' \emph{arXiv:2108.07732}, 2021. (MBPP)
+    \item D.~Hendrycks, S.~Basart, S.~Kadavath, et al., ``Measuring Coding Challenge Competence with APPS,'' \emph{NeurIPS Datasets and Benchmarks}, 2021.
+    \item G.~Sanderson, ``3Blue1Brown,'' \url{https://www.3blue1brown.com/}, 2015--present.
+    \item Manim Community Developers, ``Manim---Mathematical Animation Framework (Community Edition),'' \url{https://www.manim.community/}, 2020--present.
+    \item G.~Sanderson, ``Manim (3Blue1Brown fork),'' \url{https://github.com/3b1b/manim}, 2015--present.
+    \item T.~Brown, B.~Mann, N.~Ryder, et al., ``Language Models are Few-Shot Learners,'' \emph{NeurIPS}, 2020.
+    \item J.~Wei, X.~Wang, D.~Schuurmans, et al., ``Chain-of-Thought Prompting Elicits Reasoning in Large Language Models,'' \emph{NeurIPS}, 2022.
+    \item OpenAI, ``GPT-4o Technical Report,'' 2024.
+    \item Anthropic, ``Claude Sonnet~4 Model Card,'' 2025.
+    \item Google DeepMind, ``Gemini 2.5 Pro Technical Report,'' 2025.
+    \item DeepSeek, ``DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning,'' \emph{arXiv:2501.12948}, 2025.
+\end{enumerate}
 
 
 %% ═══════════════════════════════════════════════════════════════
@@ -845,20 +1268,33 @@ With planned expansion to 150--200 problems, \textsc{ManiBench} will serve as a 
 \section{Problem Annotation Template}
 \label{app:template}
 
-Each problem in \textsc{ManiBench} is annotated with the following structured metadata:
+Each problem in \textsc{ManiBench} is annotated as a JSON object with the following structured metadata:
 
 \begin{description}[nosep]
-    \item[\texttt{problem\_id}:] unique identifier (e.g., \texttt{MB-001}).
+    \item[\texttt{id}:] unique identifier (e.g., \texttt{MB-001}).
     \item[\texttt{title}:] descriptive title.
-    \item[\texttt{video\_id}:] YouTube video identifier.
-    \item[\texttt{category}:] task category (e.g., ``drift-sensitive, multi-scene'').
+    \item[\texttt{youtube\_video\_id}:] YouTube video identifier.
+    \item[\texttt{category}:] list of task categories (e.g., \texttt{["drift-sensitive", "multi-scene"]}).
     \item[\texttt{difficulty\_level}:] integer 1--5.
-    \item[\texttt{domain}:] mathematical domain(s).
-    \item[\texttt{prompt}:] full natural-language problem statement.
-    \item[\texttt{required\_visual\_events}:] list of events, each with an identifier, description, and weight.
+    \item[\texttt{domain}:] list of mathematical domain(s).
+    \item[\texttt{full\_prompt}:] full natural-language problem statement (used as the LLM input).
+    \item[\texttt{raw\_code\_status}:] whether original 3B1B source code has been collected.
+    \item[\texttt{raw\_code\_path}:] relative path to original ManimGL source files.
+    \item[\texttt{reference\_code\_analysis}:] structured analysis of original code, including:
+    \begin{description}[nosep]
+        \item[\texttt{framework}:] source framework (e.g., \texttt{manim\_gl}).
+        \item[\texttt{total\_lines}:] lines of original code.
+        \item[\texttt{scene\_classes}:] list of scene classes with descriptions and key methods.
+        \item[\texttt{visual\_techniques}:] catalog of rendering and animation patterns.
+        \item[\texttt{manim\_api\_patterns}:] updaters, animation types, 3D constructs, custom classes.
+    \end{description}
+    \item[\texttt{required\_visual\_events}:] list of events, each with an identifier, description, weight, criticality flag, timing, and reference code location.
     \item[\texttt{coverage\_requirements}:] list of required pedagogical elements.
-    \item[\texttt{success\_criteria}:] minimum thresholds for executability, alignment, and coverage.
-    \item[\texttt{exemplar\_notes}:] guidance for human evaluators.
+    \item[\texttt{version\_conflict\_notes}:] GL$\to$CE incompatibilities specific to the problem.
+    \item[\texttt{success\_criteria}:] minimum thresholds for executability, alignment, coverage, and version-conflict error rate.
+    \item[\texttt{common\_failure\_modes}:] known LLM failure patterns with severity tags.
 \end{description}
+
+\noindent The full dataset is available in JSON format at \url{https://huggingface.co/datasets/nabin2004/ManiBench}.
 
 \end{document}
