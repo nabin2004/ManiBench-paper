@@ -96,32 +96,70 @@ By formalizing the requirements for temporal and syntactic precision, \textsc{Ma
 \section{Introduction}
 \label{sec:introduction}
 
-The rise of large language models (LLMs) has dramatically accelerated code-generation research.
-Benchmarks like HumanEval, MBPP, and APPS have become standard evaluation tools for assessing LLM coding ability.
-However, these benchmarks primarily focus on three criteria:
+The rise of large language models (LLMs) has accelerated research in code generation. Benchmarks such as HumanEval, MBPP, and APPS are commonly used to evaluate LLM coding ability~\cite{}. These benchmarks emphasize logical correctness, syntactic validity, and output matching—i.e., whether generated code solves the task, executes without errors, and yields the expected results. While well suited for algorithmic problems, these criteria are insufficient for domains in which code produces continuous, time-dependent visual outputs.
+
+Manim, a Python animation engine developed by Grant Sanderson (3Blue1Brown), constructs mathematical animations by composing scene objects, applying geometric and visual transformations, and controlling timing. A Manim script may be syntactically valid yet fail to convey the intended concept; we identify three common failure modes:
 \begin{itemize}[nosep]
-    \item \textbf{Logic correctness}: Does the code solve the algorithmic problem?
-    \item \textbf{Syntax validity}: Does the code parse and execute without errors?
-    \item \textbf{Output matching}: Do computed results match expected values?
+    \item \textbf{Incorrect visual semantics:} animations move in unintended directions or transform the wrong objects.
+    \item \textbf{Timing misalignments:} events occur out of order or at inappropriate times, breaking causal or pedagogical flow.
+    \item \textbf{Pedagogical failure:} animations obscure rather than clarify the concept (missing annotations, poor sequencing, or absent explanatory cues).
 \end{itemize}
 
-These criteria are insufficient for domains where code generates continuous, time-dependent visual outputs.
-Manim, a Python animation engine created by Grant Sanderson (3Blue1Brown), generates mathematical animations by composing scene objects, applying transformations, and controlling timing.
-A Manim script can be \emph{syntactically valid} yet produce:
-\begin{itemize}[nosep]
-    \item \textbf{Incorrect visual semantics}: an animation that moves in the wrong direction;
-    \item \textbf{Timing misalignments}: events that occur out of order or at wrong times;
-    \item \textbf{Pedagogical failure}: an animation that obscures rather than clarifies the concept.
-\end{itemize}
+Manim exists in major two variants. Manim~CE (Community Edition) is an actively maintained, open-source implementation with a modern API, whereas Manim~GL (the original 3B1B fork) contains deprecated constructs and hand-optimized code paths. LLMs frequently conflate APIs across these variants or reference renamed/moved functions, producing code that fails under particular library versions~\cite{}.
 
-Additionally, Manim exists in two major versions:
-\begin{itemize}[nosep]
-    \item \textbf{Manim~CE (Community Edition)}: open-source, actively maintained, with a modern API;
-    \item \textbf{Manim~GL (3B1B's version)}: the original version, using some deprecated constructs, hand-optimized for performance.
-\end{itemize}
 
-LLMs frequently mix APIs from both versions or reference functions that have been moved or renamed, producing code that fails under specific library versions.
+\subsection{Related Work}
+\label{sec:related}
 
+\subsubsection{Code Generation Benchmarks}
+\label{sec:codegenBench}
+
+Evaluation of large language models (LLMs) for program synthesis has progressed from function-level correctness to repository-scale reasoning. Early benchmarks such as \textbf{\textit{HumanEval}}~\cite{} formalized unit-test-based validation through the Pass@k metric, establishing executability as the primary indicator of correctness. \textbf{\textit{MBPP}}~\cite{} extended this setting to natural-language-to-code tasks across entry-level Python problems. More recent benchmarks such as \textbf{\textit{DS-1000}}~\cite{} incorporated third-party library usage, while \textbf{\textit{SWE-Bench}} introduced repository-scale issue resolution requiring multi-file contextual reasoning.
+
+
+\begin{table}[ht]
+    \centering
+    \caption{Comparison of related benchmarks and limitations addressed by \textsc{ManiBench}.}
+    \label{tab:related-benchmarks}
+    \small
+    \begin{tabular}{@{}lp{3.6cm}p{2.6cm}p{6.2cm}@{}}
+        \toprule
+        \textbf{Benchmark} & \textbf{Focus / Area} & \textbf{Primary Metric} & \textbf{Limitation Addressed by ManiBench} \\
+        \midrule
+        HumanEval / MBPP~\cite{} & Python program synthesis, algorithmic tasks & Pass@k (logic correctness) & Temporal fidelity: these benchmarks lack rendering; code can pass logic tests yet fail to animate concepts over time. \\
+        \addlinespace
+        SWE-Bench~\cite{} & Software engineering / repo-level edits & Unit test / patch pass rate & Visual-logic drift: fixes that satisfy tests may still produce visuals that diverge from mathematical intent. \\
+        \addlinespace
+        DSCodeBench~\cite{} & Data-science APIs and pipelines & API coverage / correctness & Version hallucination: evolving third-party APIs cause models to generate deprecated or mismatched calls; ManiBench tracks 145+ GL$\to$CE incompatibilities. \\
+        \addlinespace
+        Code2Video (2025)~\cite{} & Educational video/storyboarding & Teach-quiz / aesthetic scoring & Syntactic hallucination: Code2Video emphasizes storyboarding and high-level layout, but does not drill into broken or versioned API calls in animation frameworks. \\
+        \addlinespace
+        SVGenius (2025)~\cite{} & SVG editing / static visual generation & Visual-structural scoring & Multi-scene narratives: SVG-focused benchmarks do not evaluate complex temporal causal relationships across multiple animation scenes as ManiBench does. \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+Despite increasing scale and realism, these benchmarks remain fundamentally test-driven~\cite{}. Solutions are considered correct if they pass predefined unit tests or patch validation suites~\cite{}. This evaluation paradigm does not account for renderable behavior, temporal sequencing, or alignment between code structure and intended visual semantics. In animation scripting environments, code may execute without error yet still fail to convey the intended conceptual narrative. This limitation motivates evaluation beyond executability.
+
+\subsubsection{Visual-Logic Drift in Executable Code}
+
+In renderable programming domains, correctness extends beyond runtime validity to semantic alignment between generated output and instructional intent. We define \textbf{\textit{visual-logic drift}} as the divergence between the intended mathematical narrative and the rendered animation, even when code executes successfully. Unlike traditional logical errors, drift may arise from subtle structural mismatches: incorrect object transformations, missing intermediate states, improper sequencing of animation calls, or violations of causal dependencies across scenes.
+
+Existing visual-code benchmarks primarily focus on static artifact generation (e.g., vector graphics or diagram editing), where evaluation centers on structural similarity. Animation scripting introduces temporal constraints and multi-step causal structure, requiring preservation of event ordering and pedagogical coherence. Current benchmarks do not quantify this form of semantic drift in executable animation environments.
+
+\subsubsection{Syntactic Hallucinations and Version Conflicts}
+
+Hallucination in code generation has been widely characterized as the production of syntactically valid but semantically incorrect outputs, including fabricated APIs, deprecated function usage, and identifier conflicts. Prior work demonstrates that hallucination rates increase in low-frequency or evolving libraries, and that such errors often evade static analysis because they remain grammatically valid Python.
+
+In rapidly evolving libraries, version misalignment introduces an additional layer of failure. Models may generate code consistent with legacy documentation while the prompt implicitly assumes a newer API specification. These errors are particularly difficult to detect in animation frameworks, where partial execution may mask deeper incompatibilities. Existing hallucination research quantifies runtime failures but does not evaluate how version conflicts propagate into higher-level structural inconsistencies.
+
+\subsubsection{Positioning \textbf{\textit{ManiBench}}}
+
+\textbf{\textit{ManiBench}} is situated at the intersection of code-generation benchmarking, hallucination analysis, and visual-temporal reasoning. While prior benchmarks evaluate executability and repository-scale edits, and hallucination studies analyze API-level inconsistencies, none jointly assess version-aware API correctness and temporal visual alignment in mathematical animation scripting. \textbf{\textit{ManiBench}} addresses this gap through drift-sensitive task design and a multi-tier evaluation framework that extends beyond unit-test validation to measure semantic fidelity in renderable educational code.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \subsection{Contributions}
 \label{sec:contributions}
@@ -144,74 +182,137 @@ LLMs frequently mix APIs from both versions or reference functions that have bee
 
 
 %% ═══════════════════════════════════════════════════════════════
+% \section{Problem Definition}
+% \label{sec:problem}
+
+% \subsection{The Two Failure Modes}
+% \label{sec:failure-modes}
+
+% \subsubsection{Syntactic Hallucinations}
+
+% An LLM generates code that:
+% \begin{itemize}[nosep]
+%     \item references non-existent classes (e.g., \texttt{VMobject} with incorrect spelling);
+%     \item uses deprecated functions (e.g., \texttt{mobject.scale()} instead of \texttt{mobject.scale\_to\_fit\_width()});
+%     \item calls methods with incorrect signatures;
+%     \item mixes Manim~GL syntax with Manim~CE (e.g., using OpenGL-specific rendering calls in~CE).
+% \end{itemize}
+
+% \noindent\textbf{Example:}
+% \begin{lstlisting}[caption={Syntactic hallucination examples.}]
+% # HALLUCINATED: class does not exist
+% circle = MCircle(color=BLUE)  # Should be Circle
+
+% # HALLUCINATED: deprecated method
+% circle.apply_matrix([[1, 0], [0, 1]])
+% # CE removed in favor of apply_complex_function
+% \end{lstlisting}
+
+% \subsubsection{Visual-Logic Drift}
+
+% An LLM generates code that:
+% \begin{itemize}[nosep]
+%     \item omits required visual events (e.g., gradient descent step without showing dot movement);
+%     \item implements events in the wrong order (e.g., loss curve updates before parameter updates);
+%     \item uses incorrect timing (animations too fast, pauses missing);
+%     \item fails to show causal relationships (e.g., showing a result without showing the derivation).
+% \end{itemize}
+
+% \noindent\textbf{Example:}
+% \begin{lstlisting}[caption={Visual-logic drift example.}]
+% # DRIFTED: Gradient descent without showing step updates
+% def construct(self):
+%     # Shows loss curve but dot doesn't move downhill
+%     loss_curve.animate.points = new_points
+%     # Missing: dot.animate.move_to(new_point)
+% \end{lstlisting}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 \section{Problem Definition}
 \label{sec:problem}
 
-\subsection{The Two Failure Modes}
-\label{sec:failure-modes}
+% \subsection{Primary Failure Modes in Manim Generation}
+% \label{sec:failure-modes}
 
-\subsubsection{Syntactic Hallucinations}
+We identify two distinct failure modes that traditional code-generation benchmarks fail to capture when evaluating dynamic visual outputs: \textit{Syntactic Hallucinations} and \textit{Visual-Logic Drift}.
 
-An LLM generates code that:
+\subsection{Syntactic Hallucinations}
+\label{sec:syntactic-hallucinations}
+
+Syntactic hallucinations occur when an LLM produces code that is grammatically valid Python but semantically invalid within the target Manim~CE environment. This failure mode typically manifests when the model:
 \begin{itemize}[nosep]
-    \item references non-existent classes (e.g., \texttt{VMobject} with incorrect spelling);
-    \item uses deprecated functions (e.g., \texttt{mobject.scale()} instead of \texttt{mobject.scale\_to\_fit\_width()});
-    \item calls methods with incorrect signatures;
-    \item mixes Manim~GL syntax with Manim~CE (e.g., using OpenGL-specific rendering calls in~CE).
+    \item \textbf{Invokes non-existent classes}: e.g., inventing \texttt{MCircle} instead of utilizing the standard \texttt{Circle} class;
+    \item \textbf{Employs deprecated methods}: e.g., relying on outdated API calls like \texttt{mobject.scale()} rather than the modern \texttt{mobject.scale\_to\_fit\_width()};
+    \item \textbf{Generates incorrect method signatures}: passing unsupported arguments to valid functions;
+    \item \textbf{Conflates API versions}: mixing Manim~GL syntax with Manim~CE, such as utilizing OpenGL-specific rendering commands that crash the CE pipeline.
 \end{itemize}
 
 \noindent\textbf{Example:}
-\begin{lstlisting}[caption={Syntactic hallucination examples.}]
-# HALLUCINATED: class does not exist
-circle = MCircle(color=BLUE)  # Should be Circle
+\begin{lstlisting}[language=Python, caption={Examples of syntactic hallucinations involving hallucinated classes and deprecated methods.}]
+# HALLUCINATION: The 'MCircle' class does not exist in Manim CE.
+circle = MCircle(color=BLUE)  # Expected: Circle(color=BLUE)
 
-# HALLUCINATED: deprecated method
+# HALLUCINATION: Deprecated method usage.
+# Manim CE favors apply_complex_function over apply_matrix for certain transforms.
 circle.apply_matrix([[1, 0], [0, 1]])
-# CE removed in favor of apply_complex_function
 \end{lstlisting}
 
-\subsubsection{Visual-Logic Drift}
+\subsection{Visual-Logic Drift}
+\label{sec:visual-logic-drift}
 
-An LLM generates code that:
+Visual-logic drift emerges when the generated code executes without runtime exceptions but fails to accurately represent the intended mathematical or pedagogical concepts. This semantic decoupling occurs when the model:
 \begin{itemize}[nosep]
-    \item omits required visual events (e.g., gradient descent step without showing dot movement);
-    \item implements events in the wrong order (e.g., loss curve updates before parameter updates);
-    \item uses incorrect timing (animations too fast, pauses missing);
-    \item fails to show causal relationships (e.g., showing a result without showing the derivation).
+    \item \textbf{Omits critical visual events}: e.g., illustrating a gradient descent step but failing to animate the corresponding coordinate updates;
+    \item \textbf{Inverts sequential logic}: e.g., rendering loss curve updates prior to the parameter adjustments that cause them;
+    \item \textbf{Misaligns temporal dynamics}: employing inappropriate animation runtimes or omitting essential pedagogical pauses;
+    \item \textbf{Obscures causal relationships}: displaying a final mathematical result without visually articulating the intermediate derivation steps.
 \end{itemize}
 
 \noindent\textbf{Example:}
-\begin{lstlisting}[caption={Visual-logic drift example.}]
-# DRIFTED: Gradient descent without showing step updates
+\begin{lstlisting}[language=Python, caption={An example of visual-logic drift where the underlying math is disconnected from the visual output.}]
+# DRIFT: Executing a gradient descent step without showing the dot's movement.
 def construct(self):
-    # Shows loss curve but dot doesn't move downhill
+    # The loss curve updates, but the pedagogical link is broken
+    # because the representative dot remains static.
     loss_curve.animate.points = new_points
-    # Missing: dot.animate.move_to(new_point)
+    
+    # Missing critical visual event:
+    # self.play(dot.animate.move_to(new_point))
 \end{lstlisting}
+
+% \subsection{Evaluation Challenges}
+% \label{sec:challenges}
+
+% \begin{description}[nosep]
+%     \item[Subjectivity of ``correct.'']
+%     What counts as a correct gradient descent animation?
+%     Must the dot move along the loss surface?
+%     Must the curve update dynamically?
+%     Must the learning rate shrink?
+
+%     \item[Version fragmentation.]
+%     A script that passes in Manim~CE may fail in Manim~GL\@.
+%     We must specify which version(s) the code targets.
+
+%     \item[Temporal semantics.]
+%     Unlike static code output (e.g., classification accuracy), animations have temporal semantics.
+%     An event can be present but timed incorrectly, creating pedagogical failure.
+% \end{description}
 
 \subsection{Evaluation Challenges}
 \label{sec:challenges}
-
-\begin{description}[nosep]
-    \item[Subjectivity of ``correct.'']
-    What counts as a correct gradient descent animation?
-    Must the dot move along the loss surface?
-    Must the curve update dynamically?
-    Must the learning rate shrink?
-
-    \item[Version fragmentation.]
-    A script that passes in Manim~CE may fail in Manim~GL\@.
-    We must specify which version(s) the code targets.
-
-    \item[Temporal semantics.]
-    Unlike static code output (e.g., classification accuracy), animations have temporal semantics.
-    An event can be present but timed incorrectly, creating pedagogical failure.
-\end{description}
+Evaluating animation code is challenging because correctness is subjective—animations can be syntactically valid yet pedagogically misleading. Version fragmentation means code may run in Manim~CE but fail in Manim~GL. Additionally, temporal semantics matter: events may exist but occur at the wrong time, breaking the intended instructional narrative.
 
 
 %% ═══════════════════════════════════════════════════════════════
+
+
+
 \section{Benchmark Design}
 \label{sec:design}
+To evaluate generated Manim scripts, we first measure Executability, capturing whether code runs without errors or deprecated usage. This metric establishes a baseline: only scripts that execute successfully can be meaningfully assessed for visual fidelity, timing, and pedagogical alignment.
 
 \subsection{Metric Definitions}
 \label{sec:metrics}
@@ -319,30 +420,30 @@ where $\mathcal{D} = \{\text{Math, Visual, Numeric, Structural}\}$ and $\alpha_d
 \end{enumerate}
 
 
-\subsection{Difficulty Levels}
-\label{sec:difficulty}
+% \subsection{Difficulty Levels}
+% \label{sec:difficulty}
 
-\begin{description}[nosep]
-    \item[Level~1 (Trivial).]
-    Animate simple objects (circles, squares, text).
-    Expected executability: ${>}\,95\%$.
+% \begin{description}[nosep]
+%     \item[Level~1 (Trivial).]
+%     Animate simple objects (circles, squares, text).
+%     Expected executability: ${>}\,95\%$.
 
-    \item[Level~2 (Basic).]
-    Animate a transformation or a simple mathematical concept.
-    Expected executability: $80$--$90\%$.
+%     \item[Level~2 (Basic).]
+%     Animate a transformation or a simple mathematical concept.
+%     Expected executability: $80$--$90\%$.
 
-    \item[Level~3 (Intermediate).]
-    Combine multiple transformations; show a mathematical relationship.
-    Expected executability: $70$--$80\%$.
+%     \item[Level~3 (Intermediate).]
+%     Combine multiple transformations; show a mathematical relationship.
+%     Expected executability: $70$--$80\%$.
 
-    \item[Level~4 (Advanced).]
-    Multi-step derivation, temporal synchronization, pedagogical clarity.
-    Expected executability: $50$--$70\%$.
+%     \item[Level~4 (Advanced).]
+%     Multi-step derivation, temporal synchronization, pedagogical clarity.
+%     Expected executability: $50$--$70\%$.
 
-    \item[Level~5 (Expert).]
-    Complex concept, multiple scenes, advanced Manim features.
-    Expected executability: $30$--$50\%$.
-\end{description}
+%     \item[Level~5 (Expert).]
+%     Complex concept, multiple scenes, advanced Manim features.
+%     Expected executability: $30$--$50\%$.
+% \end{description}
 
 
 %% ═══════════════════════════════════════════════════════════════
@@ -361,7 +462,7 @@ Each problem includes:
     \item difficulty level (1--5),
     \item task category,
     \item success criteria for Executability, Alignment, and Coverage, and
-    \item reference implementation notes (not shared with models; for human evaluation only).
+    \item reference implementation notes (not shared with models; reserved for future human evaluation).
 \end{enumerate}
 
 
@@ -962,7 +1063,7 @@ These categories inform both the version-conflict detection patterns used in our
             {Version-conflict rate};
 
         \node[headerlabel=wfteal, anchor=north west]
-            at ($(s2.south west)+(0,-0.32)$) {Human review};
+            at ($(s2.south west)+(0,-0.32)$) {Heuristic approximation};
         \node[bullet={wfteal}{}, anchor=north west] (s3)
             at ($(s2.south west)+(0,-0.55)$)
             {Alignment score};
@@ -1041,36 +1142,37 @@ These categories inform both the version-conflict detection patterns used in our
     Each benchmark problem flows through four stages:
     \emph{(1)}~an LLM generates Manim code from a structured prompt;
     \emph{(2)}~the script executes inside a sandboxed, version-pinned environment;
-    \emph{(3)}~automatic checks (executability, version-conflict rate) and human review
-    (alignment, coverage) produce multi-signal scores; and
+    \emph{(3)}~automatic checks (executability, version-conflict rate) and heuristic
+    approximations (alignment, coverage) produce multi-signal scores; and
     \emph{(4)}~results are aggregated into per-problem and cross-task summaries.
     A dashed feedback loop indicates re-prompting on execution failure.}
     \label{fig:workflow}
 \end{figure}
 
-\subsection{Human Evaluation Protocol}
-\label{sec:human-eval}
+\subsection{Evaluation Scope}
+\label{sec:eval-scope}
 
-For Alignment and Coverage scores, we employ structured human evaluation:
+All four metrics in the current evaluation are computed \emph{fully automatically}.
+Executability and VCER are determined via AST parsing, subprocess rendering, and regex-based static analysis.
+Alignment and Coverage are approximated through keyword-bank and pattern-matching heuristics that detect the \emph{presence} of required visual events and pedagogical elements in the generated source code.
+Because these heuristics operate on code tokens rather than rendered output, they serve as \textbf{conservative lower-bound estimates}: a keyword match confirms that a concept is referenced but cannot verify that it is correctly animated.
 
+\noindent\textbf{Planned Human Evaluation.}
+A structured human review protocol is designed for future work:
 \begin{enumerate}[nosep]
     \item Watch the rendered animation.
     \item Check off each required visual event as present or absent.
-    \item Note timing: are events synchronized correctly?
-    \item Assess pedagogical clarity: does the animation explain the concept?
-    \item Provide Alignment Score ($0.0$--$1.0$) and Coverage Score ($0.0$--$1.0$).
+    \item Assess timing synchronization and pedagogical clarity.
+    \item Provide Alignment and Coverage scores ($0.0$--$1.0$).
 \end{enumerate}
-
-\noindent\textbf{Disagreement Resolution.}
-Two independent reviewers score each output.
-If disagreement exceeds~0.15, a third reviewer breaks the tie.
-We report inter-rater agreement via Krippendorff's~$\alpha$ or Cohen's~$\kappa$.
+This protocol will employ two independent reviewers per output, with a third reviewer resolving disagreements exceeding~$0.15$, and inter-rater agreement reported via Krippendorff's~$\alpha$.
+The current study reports only automated heuristic scores; no human evaluation has been conducted.
 
 
 \subsection{Automated Evaluation Framework}
 \label{sec:auto-eval}
 
-To complement human review and enable large-scale evaluation, we implement an automated evaluation pipeline.
+We implement a fully automated evaluation pipeline for reproducible, large-scale metric computation.
 The framework orchestrates code generation across multiple LLMs via the OpenRouter API, executes generated code in sandboxed environments, and computes all four metrics programmatically.
 
 \subsubsection{Multi-Model Evaluation}
@@ -1119,8 +1221,9 @@ Each generated code sample passes through a four-stage analysis pipeline:
     \item \textbf{Static Analysis:} over 40~regex patterns (derived from the 145~documented GL$\to$CE incompatibilities in Section~\ref{sec:refcode}) scan for version conflicts; keyword-bank--based heuristics detect the presence of required visual events and pedagogical elements.
 \end{enumerate}
 
-\noindent Executability and VCER are computed fully automatically.
-Alignment and Coverage are approximated heuristically via keyword and AST matching, serving as lower-bound estimates pending human review.
+\noindent All four metrics are computed fully automatically.
+Executability and VCER use AST parsing, subprocess execution, and regex-based static analysis.
+Alignment and Coverage are approximated heuristically via keyword and pattern matching, serving as conservative lower-bound estimates (see Section~\ref{sec:eval-scope}).
 
 
 \subsection{Prompt Engineering Strategies}
@@ -1168,7 +1271,7 @@ The total evaluation corpus comprises $240$~generated code samples.
 \noindent\textbf{Environment.}
 All code targets Manim~CE, executed in a sandboxed environment with a 60-second rendering timeout.
 Metrics are computed using the automated pipeline described in Section~\ref{sec:auto-eval}.
-Alignment and Coverage scores reported here are heuristic lower-bound estimates based on keyword and AST matching; full human review is in progress.
+Alignment and Coverage scores reported here are heuristic lower-bound estimates based on keyword and pattern matching; no human evaluation has been conducted in this study.
 
 
 \subsection{Cross-Model Comparison (Zero-Shot)}
@@ -1323,7 +1426,7 @@ Table~\ref{tab:grid} presents the full executability and coverage grid for the t
     Two problems trigger version-conflict errors across models: MB-004 (Eigenvectors, $\text{VCER} = 16.7\%$) and MB-008 (Chain Rule, $\text{VCER} = 16.7\%$), both involving linear-algebra transformations that tempt models into using deprecated \texttt{ShowCreation} or ManimGL-specific \texttt{CONFIG} patterns.
     \item \textbf{Heuristic alignment saturates.}
     Most models achieve alignment scores above $0.90$ because keyword-based detection cannot distinguish whether visual events are \emph{correctly implemented} versus merely \emph{mentioned in comments or string literals}.
-    This confirms the necessity of human review and future vision-based evaluation.
+    This underscores the need for future human review or vision-based evaluation to produce more discriminative alignment scores.
     \item \textbf{Coverage is uniformly low.}
     Average coverage across all models is $0.18$, indicating that LLM-generated Manim code lacks pedagogical richness---mathematical annotations, numeric evidence trackers, and structural clarity elements are rarely produced.
     \item \textbf{Model scale does not guarantee Manim proficiency.}
@@ -1344,6 +1447,10 @@ This distinction is critical for educational tools, where a silent failure (wron
 \subsection{Limitations and Future Work}
 
 \begin{enumerate}[nosep]
+    \item \textbf{No Human Evaluation.}
+    All metrics reported in this study are computed fully automatically.
+    Alignment and Coverage rely on keyword-bank and regex heuristics that detect concept \emph{presence} but cannot verify \emph{correctness} of the rendered animation.
+    A structured human review protocol has been designed (Section~\ref{sec:eval-scope}) but not yet conducted; incorporating human judgments is a high-priority next step.
     \item \textbf{Heuristic Alignment Saturation.}
     The keyword-based alignment metric saturates near~$1.0$ for most models (Section~\ref{sec:observations}), failing to distinguish correct implementations from code that merely contains relevant keywords.
     Future work should integrate frame-level video comparison or vision--language model grading to produce more discriminative alignment scores.

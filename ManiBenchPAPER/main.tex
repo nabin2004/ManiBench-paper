@@ -1,0 +1,631 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% ManiBench — LOCUS Research Symposium 2026
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\documentclass{locusjournal}
+
+% ── Additional packages needed for this paper ─────────────────
+\usepackage{listings}
+\usepackage{textcomp}
+
+% ── Code listing style ───────────────────────────────────────
+\lstset{
+    language=Python,
+    basicstyle=\scriptsize\ttfamily,
+    keywordstyle=\color{blue!70!black},
+    commentstyle=\color{green!50!black},
+    stringstyle=\color{red!60!black},
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    xleftmargin=1.5em,
+    framexleftmargin=1.2em,
+    captionpos=b,
+    aboveskip=6pt,
+    belowskip=4pt,
+}
+
+% ── Definition environment (without amsthm to avoid tcolorbox conflict) ──
+\newcounter{defnctr}[section]
+\renewcommand{\thedefnctr}{\thesection.\arabic{defnctr}}
+\newenvironment{definition}[1][]{\refstepcounter{defnctr}\par\medskip\noindent\textbf{Definition~\thedefnctr\if\relax#1\relax\else\ (#1)\fi.}\itshape}{\par\medskip}
+
+% ── Bibliography ──────────────────────────────────────────────
+\addbibresource{references.bib}
+
+% ══════════════════════════════════════════════════════════════
+% Title and author information
+% ══════════════════════════════════════════════════════════════
+\title{ManiBench: A Benchmark for Testing Visual-Logic Drift and Syntactic Hallucinations in Manim Code Generation}
+
+\author[1]{Nabin Oli}
+\affil[1]{IOE, Pulchowk Campus, Tribhuvan University}
+
+\date{February 2026}
+
+% ── Abstract ──────────────────────────────────────────────────
+\abstract{
+Traditional code-generation benchmarks like HumanEval and MBPP excel at testing logic and syntax, but they fall short when code must translate into dynamic, pedagogical visuals.
+We introduce \textbf{ManiBench}, a specialized benchmark designed to evaluate LLM performance in generating Manim~CE (Community Edition) code---a domain where temporal fidelity and version-aware API correctness are paramount.
+ManiBench addresses two critical failure modes prevalent in LLM outputs:
+\emph{Syntactic Hallucinations} (generating code that is grammatically valid Python but references non-existent Manim functions, outdated or deprecated APIs, undefined classes, or calls that break under specific library versions) and
+\emph{Visual-Logic Drift} (occurrences where generated visuals diverge from intended mathematical logic, such as missing events, incorrect causal relationships, timing errors, or the model struggling to animate a concept).
+The benchmark launches with a pilot of 12~high-quality challenges across five difficulty levels, spanning domains including calculus, linear algebra, probability, topology, and AI\@.
+Each problem is backed by reference code analysis of the original 3Blue1Brown ManimGL source (${\sim}53{,}000$~lines total, 143~scene classes, 145~documented GL$\to$CE incompatibilities).
+ManiBench employs a four-tier automated scoring framework:
+(1)~\emph{Executability} (Pass@1),
+(2)~\emph{Version-Conflict Error Rate},
+(3)~\emph{Alignment Score}, and
+(4)~\emph{Coverage Score}.
+An accompanying open-source evaluation framework automates metric computation across models from multiple providers and five prompting strategies.
+}
+
+\keywords{Syntactic Hallucinations, Visual-Logic Drift, Manim~CE, Code Generation, Benchmarking}
+
+% ══════════════════════════════════════════════════════════════
+\begin{document}
+\maketitle
+
+%% ═════════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:introduction}
+
+The rise of large language models (LLMs) has accelerated research in code generation. Benchmarks such as HumanEval, MBPP, and APPS are commonly used to evaluate LLM coding ability~\cite{chen2021humaneval, austin2021mbpp, hendrycks2021apps}. These benchmarks emphasize logical correctness, syntactic validity, and output matching---i.e., whether generated code solves the task, executes without errors, and yields the expected results. While well suited for algorithmic problems, these criteria are insufficient for domains in which code produces continuous, time-dependent visual outputs.
+
+Manim, a Python animation engine developed by Grant Sanderson (3Blue1Brown)~\cite{sanderson3b1b}, constructs mathematical animations by composing scene objects, applying geometric and visual transformations, and controlling timing. A Manim script may be syntactically valid yet fail to convey the intended concept; we identify three common failure modes:
+
+\begin{itemize}
+    \item \textbf{Incorrect visual semantics:} animations move in unintended directions or transform the wrong objects.
+    \item \textbf{Timing misalignments:} events occur out of order or at inappropriate times, breaking causal or pedagogical flow.
+    \item \textbf{Pedagogical failure:} animations obscure rather than clarify the concept (missing annotations, poor sequencing, or absent explanatory cues).
+\end{itemize}
+
+Manim exists in two major variants. Manim~CE (Community Edition)~\cite{manimce} is an actively maintained, open-source implementation with a modern API, whereas Manim~GL (the original 3B1B fork)~\cite{manimgl} contains deprecated constructs and hand-optimized code paths. LLMs frequently conflate APIs across these variants or reference renamed/moved functions, producing code that fails under particular library versions.
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Code Generation Benchmarks}
+\label{sec:codegenBench}
+
+Evaluation of LLMs for program synthesis has progressed from function-level correctness to repository-scale reasoning. Early benchmarks such as \textbf{\textit{HumanEval}}~\cite{chen2021humaneval} formalized unit-test-based validation through the Pass@k metric, establishing executability as the primary indicator of correctness. \textbf{\textit{MBPP}}~\cite{austin2021mbpp} extended this setting to natural-language-to-code tasks across entry-level Python problems. More recent benchmarks such as \textbf{\textit{DS-1000}}~\cite{lai2023ds1000} incorporated third-party library usage, while \textbf{\textit{SWE-Bench}}~\cite{jimenez2024swebench} introduced repository-scale issue resolution requiring multi-file contextual reasoning.
+
+\begin{table}[H]
+\small
+\begin{tabularx}{\columnwidth}{@{}X p{1.5cm} p{4.5cm}@{}}
+    \toprule
+    \textbf{Benchmark} & \textbf{Metric} & \textbf{ManiBench Addresses} \\
+    \midrule
+    HumanEval / MBPP & Pass@k & Temporal fidelity: code can pass logic tests yet fail to animate concepts over time. \\
+    \addlinespace
+    SWE-Bench & Patch rate & Visual-logic drift: fixes satisfying tests may produce visuals diverging from intent. \\
+    \addlinespace
+    DSCodeBench & API cov. & Version hallucination: ManiBench tracks 145+ GL$\to$CE incompatibilities. \\
+    \addlinespace
+    Code2Video & Aesthetic & Syntactic hallucination: does not drill into broken API calls in animation frameworks. \\
+    \addlinespace
+    SVGenius & Visual & Multi-scene narratives: SVG benchmarks lack temporal causal evaluation. \\
+    \bottomrule
+\end{tabularx}
+\caption{Related benchmarks and limitations addressed by ManiBench.}
+\label{tab:related-benchmarks}
+\end{table}
+
+Despite increasing scale and realism, these benchmarks remain fundamentally test-driven. This evaluation paradigm does not account for renderable behavior, temporal sequencing, or alignment between code structure and intended visual semantics.
+
+\subsection{Visual-Logic Drift in Executable Code}
+
+We define \textbf{\textit{visual-logic drift}} as the divergence between the intended mathematical narrative and the rendered animation, even when code executes successfully. Unlike traditional logical errors, drift may arise from subtle structural mismatches: incorrect object transformations, missing intermediate states, improper sequencing of animation calls, or violations of causal dependencies across scenes. Current benchmarks do not quantify this form of semantic drift in executable animation environments.
+
+\subsection{Syntactic Hallucinations and Version Conflicts}
+
+Hallucination in code generation has been widely characterized as the production of syntactically valid but semantically incorrect outputs, including fabricated APIs, deprecated function usage, and identifier conflicts. In rapidly evolving libraries, version misalignment introduces an additional layer of failure. Models may generate code consistent with legacy documentation while the prompt implicitly assumes a newer API specification. These errors are particularly difficult to detect in animation frameworks, where partial execution may mask deeper incompatibilities.
+
+\subsection{Positioning ManiBench}
+
+ManiBench is situated at the intersection of code-generation benchmarking, hallucination analysis, and visual-temporal reasoning. While prior benchmarks evaluate executability and repository-scale edits, and hallucination studies analyze API-level inconsistencies, none jointly assess version-aware API correctness and temporal visual alignment in mathematical animation scripting. ManiBench addresses this gap through drift-sensitive task design and a multi-tier evaluation framework.
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Contributions}
+\label{sec:contributions}
+
+ManiBench makes four key contributions:
+
+\begin{enumerate}
+    \item \textbf{Formalized Visual-Logic Metrics.}
+    We define an \emph{Alignment Score} and a four-dimensional \emph{Coverage Score} to capture whether generated animations match pedagogical intent, beyond mere syntactic validity.
+
+    \item \textbf{Version-Aware Evaluation.}
+    We explicitly test version-conflict errors and deprecated API usage, with 145~documented GL$\to$CE incompatibilities across eight categories.
+
+    \item \textbf{Curated Pilot Dataset with Reference Code Analysis.}
+    We provide 12~hand-crafted benchmark problems drawn from 3Blue1Brown's published videos, backed by comprehensive analysis of ${\sim}53{,}000$~lines of original source code including 143~scene classes, 120~visual techniques, and detailed visual-event specifications.
+
+    \item \textbf{Automated Evaluation Framework.}
+    We release an open-source evaluation pipeline supporting six LLMs across five prompting strategies, with automated metric computation for executability, version conflicts, alignment, and coverage.
+\end{enumerate}
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Problem Definition}
+\label{sec:problem}
+
+We identify two distinct failure modes that traditional code-generation benchmarks fail to capture when evaluating dynamic visual outputs: \textit{Syntactic Hallucinations} and \textit{Visual-Logic Drift}.
+
+\subsection{Syntactic Hallucinations}
+\label{sec:syntactic-hallucinations}
+
+Syntactic hallucinations occur when an LLM produces code that is grammatically valid Python but semantically invalid within the target Manim~CE environment. This failure mode typically manifests when the model:
+
+\begin{itemize}
+    \item \textbf{Invokes non-existent classes}: e.g., inventing \texttt{MCircle} instead of utilizing the standard \texttt{Circle} class;
+    \item \textbf{Employs deprecated methods}: e.g., relying on outdated API calls;
+    \item \textbf{Generates incorrect method signatures}: passing unsupported arguments to valid functions;
+    \item \textbf{Conflates API versions}: mixing Manim~GL syntax with Manim~CE.
+\end{itemize}
+
+\begin{lstlisting}[caption={Examples of syntactic hallucinations.}]
+# HALLUCINATION: 'MCircle' does not exist
+circle = MCircle(color=BLUE)  # Expected: Circle
+
+# HALLUCINATION: Deprecated method usage
+circle.apply_matrix([[1, 0], [0, 1]])
+\end{lstlisting}
+
+\subsection{Visual-Logic Drift}
+\label{sec:visual-logic-drift}
+
+Visual-logic drift emerges when the generated code executes without runtime exceptions but fails to accurately represent the intended mathematical or pedagogical concepts. This semantic decoupling occurs when the model omits critical visual events, inverts sequential logic, misaligns temporal dynamics, or obscures causal relationships.
+
+\begin{lstlisting}[caption={Visual-logic drift example.}]
+# DRIFT: Gradient descent without showing
+# the dot's movement
+def construct(self):
+    loss_curve.animate.points = new_points
+    # Missing: dot.animate.move_to(new_point)
+\end{lstlisting}
+
+\subsection{Evaluation Challenges}
+\label{sec:challenges}
+
+Evaluating animation code is challenging because correctness is subjective---animations can be syntactically valid yet pedagogically misleading. Version fragmentation means code may run in Manim~CE but fail in Manim~GL. Additionally, temporal semantics matter: events may exist but occur at the wrong time, breaking the intended instructional narrative.
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Benchmark Design}
+\label{sec:design}
+
+To evaluate generated Manim scripts, we first measure Executability, capturing whether code runs without errors or deprecated usage. This metric establishes a baseline: only scripts that execute successfully can be meaningfully assessed for visual fidelity, timing, and pedagogical alignment.
+
+\subsection{Metric Definitions}
+\label{sec:metrics}
+
+\subsubsection{Metric~1: Executability (Pass@1)}
+
+\begin{definition}[Executability]
+The fraction of generated outputs that run without raising exceptions or using deprecated imports:
+\begin{equation}
+    \mathrm{Executability} = \frac{\text{\# successful executions}}{\text{\# total attempts}}.
+\end{equation}
+\end{definition}
+
+\textbf{Success criteria:} script completes without runtime exception; no deprecated imports detected; no Manim deprecation warnings.
+
+\textbf{Failure cases:} import errors, runtime \texttt{AttributeError}, type errors, unhandled exceptions during rendering.
+
+\subsubsection{Metric~2: Version-Conflict Error Rate}
+
+\begin{definition}[VCER]
+The frequency with which generated code triggers version-specific errors:
+\begin{equation}
+    \mathrm{VCER} = \frac{\text{\# mixed-API or legacy errors}}{\text{\# total attempts}}.
+\end{equation}
+\end{definition}
+
+Tracked errors include GL-specific syntax in CE code, calls to renamed functions, and signature mismatches due to API evolution.
+
+\subsubsection{Metric~3: Alignment Score}
+
+\begin{definition}[Alignment Score]
+The weighted fraction of required visual events that are both present and temporally accurate:
+\begin{equation}
+    \mathrm{Alignment} = \frac{\sum_{i} w_i \cdot p_i \cdot t_i}{\sum_{i} w_i},
+\end{equation}
+where $w_i$ is the importance weight of event~$i$, $p_i = 1$ if event~$i$ is present, and $t_i = 1$ if event~$i$ occurs at the expected time.
+\end{definition}
+
+\subsubsection{Metric~4: Coverage Score}
+
+\begin{definition}[Coverage Score]
+The density of pedagogical elements, computed as a weighted sum over four sub-dimensions:
+\begin{equation}
+    \mathrm{Coverage} = \sum_{d \in \mathcal{D}} \alpha_d \cdot \frac{|\text{present}_d|}{|\text{expected}_d|},
+\end{equation}
+where $\mathcal{D} = \{\text{Math, Visual, Numeric, Structural}\}$ and $\alpha_d$ are dimension weights.
+\end{definition}
+
+The four sub-dimensions are:
+\begin{enumerate}
+    \item \textbf{Mathematical Annotation} ($\alpha\!=\!0.35$): formulas, \texttt{Tex}/\texttt{MathTex} objects, labels, LaTeX commands.
+    \item \textbf{Visual Mapping} ($\alpha\!=\!0.30$): color coding, arrow indicators, dot markers, gradient coloring.
+    \item \textbf{Numeric Evidence} ($\alpha\!=\!0.20$): \texttt{DecimalNumber}, \texttt{ValueTracker}, \texttt{Axes}, plotted functions.
+    \item \textbf{Structural Clarity} ($\alpha\!=\!0.15$): \texttt{VGroup} organization, paced waits, \texttt{LaggedStart} sequencing, method decomposition.
+\end{enumerate}
+
+
+\subsection{Task Categories}
+\label{sec:categories}
+
+ManiBench organizes problems into five categories:
+
+\begin{enumerate}
+    \item \textbf{Direct Visualization (40\%)} --- Prompt $\to$ code (Levels~1--3).
+    \item \textbf{Drift-Sensitive (20\%)} --- Detect temporal transformation mismatches (Levels~2--4).
+    \item \textbf{Debugging (20\%)} --- Broken code $\to$ fix (Levels~2--4).
+    \item \textbf{Version-Conflict Traps (10\%)} --- Tempting outdated syntax (Levels~3--5).
+    \item \textbf{Multi-Scene Narrative (10\%)} --- Multi-scene scripts (Levels~4--5).
+\end{enumerate}
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Benchmark Dataset}
+\label{sec:dataset}
+
+\subsection{Pilot Dataset: 12 Problems}
+\label{sec:pilot}
+
+The pilot dataset includes 12~hand-curated problems drawn from 3Blue1Brown's published videos~\cite{sanderson3b1b}. Each problem includes: a natural-language problem statement, video source, required visual events with formal specifications, difficulty level (1--5), task category, success criteria, and reference implementation notes (reserved for future human evaluation).
+
+Table~\ref{tab:problems-summary} summarizes the pilot problems.
+
+\begin{table}[H]
+\small
+\begin{tabularx}{\columnwidth}{@{}l X c c@{}}
+    \toprule
+    \textbf{ID} & \textbf{Problem} & \textbf{Diff.} & \textbf{Domain} \\
+    \midrule
+    MB-001 & Colliding Blocks Compute $\pi$ & 4 & Physics \\
+    MB-002 & Gradient Descent & 3 & ML, Calculus \\
+    MB-003 & Convolution & 3 & Signal Proc. \\
+    MB-004 & Eigenvectors & 4 & Lin. Algebra \\
+    MB-005 & Determinant & 2 & Lin. Algebra \\
+    MB-006 & Central Limit Theorem & 3 & Probability \\
+    MB-007 & Medical Test (Bayes) & 2 & Probability \\
+    MB-008 & Chain Rule & 3 & Calculus \\
+    MB-009 & Integration (FTC) & 3 & Calculus \\
+    MB-010 & Taylor Series & 4 & Calculus \\
+    MB-011 & Hairy Ball Theorem & 5 & Topology \\
+    MB-012 & Windmill Problem & 4 & Geometry \\
+    \bottomrule
+\end{tabularx}
+\caption{Summary of the 12~pilot benchmark problems.}
+\label{tab:problems-summary}
+\end{table}
+
+\subsection{Reference Code Analysis}
+\label{sec:refcode}
+
+For each of the 12~pilot problems, we obtained and analyzed the original source code from 3Blue1Brown's ManimGL repository. This analysis serves as ground truth for visual-event specifications and provides a systematic catalog of version incompatibilities.
+
+Key outputs include: a scene class inventory (143~total), a visual technique catalog (120~techniques), documented Manim API patterns, and version conflict mapping (145~incompatibilities).
+
+\begin{table}[H]
+\small
+\begin{tabularx}{\columnwidth}{@{}X r r r r@{}}
+    \toprule
+    \textbf{Problem} & \textbf{Lines} & \textbf{Scenes} & \textbf{Vis.T.} & \textbf{GL$\to$CE} \\
+    \midrule
+    MB-001 Colliding Blocks & 2,193 & 16 & 10 & 15 \\
+    MB-002 Gradient Descent & 8,598 & 16 & 16 & 13 \\
+    MB-003 Convolution & 3,309 & 13 & 11 & 14 \\
+    MB-004 Eigenvectors & 5,120 & 13 & 9 & 10 \\
+    MB-005 Determinant & 1,132 & 11 & 7 & 10 \\
+    MB-006 CLT & 7,036 & 12 & 9 & 11 \\
+    MB-007 Medical Test & 7,044 & 13 & 9 & 11 \\
+    MB-008 Chain Rule & 2,287 & 4 & 7 & 10 \\
+    MB-009 Integration & 4,943 & 11 & 9 & 11 \\
+    MB-010 Taylor Series & 3,676 & 11 & 9 & 10 \\
+    MB-011 Hairy Ball & 3,796 & 12 & 12 & 16 \\
+    MB-012 Windmill & 4,135 & 11 & 12 & 14 \\
+    \midrule
+    \textbf{Total} & \textbf{$\sim$53k} & \textbf{143} & \textbf{120} & \textbf{145} \\
+    \bottomrule
+\end{tabularx}
+\caption{Reference code analysis summary for the 12~pilot problems.}
+\label{tab:refcode}
+\end{table}
+
+\subsubsection{Version Incompatibility Categories}
+
+Across the 145~documented GL$\to$CE incompatibilities, we identified eight recurring categories:
+
+\begin{enumerate}
+    \item \textbf{Import system:} \texttt{manim\_imports\_ext} $\to$ \texttt{from manim import *}.
+    \item \textbf{Class configuration:} \texttt{CONFIG} dict $\to$ \texttt{\_\_init\_\_} parameters.
+    \item \textbf{Scene types:} \texttt{InteractiveScene}, \texttt{GraphScene} $\to$ \texttt{Scene}/\texttt{Axes}.
+    \item \textbf{Animation renames:} \texttt{ShowCreation} $\to$ \texttt{Create}; \texttt{FadeInFrom} $\to$ \texttt{FadeIn(shift=...)}.
+    \item \textbf{PiCreature ecosystem:} Not available in~CE.
+    \item \textbf{3D rendering:} \texttt{apply\_depth\_test}, \texttt{set\_shading} $\to$ limited CE support.
+    \item \textbf{Camera control:} \texttt{self.frame.reorient()} $\to$ \texttt{self.camera.frame}.
+    \item \textbf{Custom mobjects:} \texttt{GlowDot}, \texttt{DieFace}, etc.\ $\to$ custom implementation needed.
+\end{enumerate}
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Evaluation Protocol}
+\label{sec:evaluation}
+
+\subsection{Evaluation Scope}
+\label{sec:eval-scope}
+
+All four metrics in the current evaluation are computed \emph{fully automatically}. Executability and VCER are determined via AST parsing, subprocess rendering, and regex-based static analysis. Alignment and Coverage are approximated through keyword-bank and pattern-matching heuristics that detect the \emph{presence} of required visual events and pedagogical elements in the generated source code. Because these heuristics operate on code tokens rather than rendered output, they serve as \textbf{conservative lower-bound estimates}: a keyword match confirms that a concept is referenced but cannot verify that it is correctly animated.
+
+\textbf{Planned Human Evaluation.}
+A structured human review protocol is designed for future work: (1)~watch the rendered animation, (2)~check off each required visual event, (3)~assess timing and pedagogical clarity, (4)~provide Alignment and Coverage scores ($0.0$--$1.0$). This protocol will employ two independent reviewers per output, with a third resolving disagreements exceeding~$0.15$, and inter-rater agreement reported via Krippendorff's~$\alpha$. The current study reports only automated heuristic scores; no human evaluation has been conducted.
+
+
+\subsection{Automated Evaluation Framework}
+\label{sec:auto-eval}
+
+We implement a fully automated evaluation pipeline for reproducible, large-scale metric computation. The framework orchestrates code generation across multiple LLMs via the OpenRouter API, executes generated code in sandboxed environments, and computes all four metrics programmatically.
+
+\subsubsection{Multi-Model Evaluation}
+
+The pipeline supports evaluation across two API providers: OpenRouter (for commercial models) and Inference.net (for self-hosted open-weight models). Table~\ref{tab:models} lists the full model roster.
+
+\begin{table}[H]
+\small
+\begin{tabularx}{\columnwidth}{@{}X l l c@{}}
+    \toprule
+    \textbf{Model} & \textbf{Provider} & \textbf{API} & \textbf{Eval.} \\
+    \midrule
+    Kimi-K2.5 & Moonshot & OR & Z \\
+    Qwen3.5-Plus & Alibaba & OR & Z \\
+    Qwen3-235B-A22B & Alibaba & OR & Z \\
+    Llama-3.1-8B & Meta & OR & Z \\
+    Qwen-2.5-Coder & Alibaba & OR & Z \\
+    \midrule
+    Gemma-3-27B & Google & Inf.net & A \\
+    \bottomrule
+\end{tabularx}
+\caption{Model roster. OR = OpenRouter. Z = zero-shot only; A = all five strategies.}
+\label{tab:models}
+\end{table}
+
+All models are evaluated with temperature~$0.0$ for reproducibility, with a maximum of 8,192~generated tokens per request. OpenRouter models are evaluated with 1~trial per (model, problem) pair under zero-shot prompting. Gemma-3-27B is evaluated with 3~trials across all five prompting strategies, yielding $3 \times 12 \times 5 = 180$~total runs.
+
+\subsubsection{Automated Metric Computation}
+
+Each generated code sample passes through a four-stage analysis pipeline:
+
+\begin{enumerate}
+    \item \textbf{Syntax Validation:} Python AST parsing (\texttt{ast.parse}) for syntactic correctness.
+    \item \textbf{Structural Checks:} detection of \texttt{Scene} subclasses and valid imports; flagging of ManimGL-specific imports.
+    \item \textbf{Sandboxed Execution:} rendering via \texttt{subprocess} with 60\,s timeout; exit codes and error types captured.
+    \item \textbf{Static Analysis:} 40+ regex patterns scan for version conflicts; keyword-bank heuristics detect visual events and pedagogical elements.
+\end{enumerate}
+
+All four metrics are computed fully automatically. Alignment and Coverage are approximated heuristically via keyword and pattern matching, serving as conservative lower-bound estimates (see Section~\ref{sec:eval-scope}).
+
+
+\subsection{Prompt Engineering Strategies}
+\label{sec:prompt-strategies}
+
+We implement five prompting strategies of increasing sophistication, each evaluated in full on Gemma-3-27B with 3~trials per problem:
+
+\begin{enumerate}
+    \item \textbf{Zero-Shot Direct.} The problem statement is provided verbatim with a system prompt specifying Manim~CE. Serves as the baseline; Kimi-K2.5 achieves $66.7\%$ executability.
+
+    \item \textbf{Few-Shot Examples.} One or two working Manim~CE code examples precede the target problem. Few-shot is the only strategy to improve executability for Gemma-3-27B ($+11.1$~pp).
+
+    \item \textbf{Chain-of-Thought (CoT).} The model analyzes visual components before writing code. Empirically introduces a small VCER ($2.8\%$) on Gemma-3-27B~\cite{wei2022cot}.
+
+    \item \textbf{Constraint-Based.} Explicit timing/ordering constraints are injected. Yields marginal changes in practice.
+
+    \item \textbf{Version-Conflict-Aware.} Forbidden ManimGL constructs are enumerated. Eliminates VCER entirely for Gemma-3-27B ($\mathrm{VCER} = 0.0\%$).
+\end{enumerate}
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Results}
+\label{sec:results}
+
+\subsection{Experimental Setup}
+\label{sec:setup}
+
+\textbf{Models.} We evaluate six models across two API providers (Table~\ref{tab:models}). Five models via OpenRouter under zero-shot prompting ($5 \times 12 = 60$~samples). Gemma-3-27B via Inference.net across all five strategies ($180$~samples). Total: $240$~generated code samples.
+
+\textbf{Environment.} All code targets Manim~CE, executed in a sandboxed environment with a 60-second timeout. Alignment and Coverage scores are heuristic lower-bound estimates; no human evaluation has been conducted.
+
+\subsection{Cross-Model Comparison (Zero-Shot)}
+\label{sec:cross-model}
+
+Table~\ref{tab:cross-model} reports aggregate results for all six models under zero-shot prompting.
+
+\begin{table}[H]
+\small
+\begin{tabularx}{\columnwidth}{@{}X l c c c c@{}}
+    \toprule
+    \textbf{Model} & \textbf{API} & \textbf{Ex.$\uparrow$} & \textbf{VC$\downarrow$} & \textbf{Al.$\uparrow$} & \textbf{Co.$\uparrow$} \\
+    \midrule
+    Kimi-K2.5 & OR & \textbf{.667} & .083 & .917 & \textbf{.265} \\
+    Qwen3.5+ & OR & .333 & .085 & .917 & .226 \\
+    Qwen3-235B & OR & .250 & \textbf{.000} & \textbf{.993} & .251 \\
+    Llama-3.1-8B & OR & .083 & .024 & \textbf{1.00} & .132 \\
+    Qwen-2.5-Coder & OR & .000 & \textbf{.000} & .471 & .014 \\
+    Gemma-3-27B & Inf & .000 & \textbf{.000} & .993 & .172 \\
+    \bottomrule
+\end{tabularx}
+\caption{Cross-model comparison (zero-shot). Ex.\ = Executability, VC = VCER, Al.\ = Alignment, Co.\ = Coverage. Best per column \textbf{bolded}.}
+\label{tab:cross-model}
+\end{table}
+
+\textbf{Key Findings.} Kimi-K2.5 achieves the highest executability ($66.7\%$), rendering 8~of~12 problems. Qwen3-235B-A22B and Gemma-3-27B produce zero version-conflict errors but struggle with executability. Llama-3.1-8B achieves a perfect heuristic alignment score of~$1.0$ despite only $8.3\%$ executability, suggesting its outputs contain expected keywords even when code does not execute.
+
+
+\subsection{Per-Problem Analysis (Zero-Shot)}
+\label{sec:per-problem}
+
+Table~\ref{tab:per-problem} breaks down results by benchmark problem, averaged across all six models.
+
+\begin{table}[H]
+\small
+\begin{tabularx}{\columnwidth}{@{}l X c c c c c@{}}
+    \toprule
+    \textbf{ID} & \textbf{Problem} & \textbf{D.} & \textbf{Ex.} & \textbf{VC} & \textbf{Al.} & \textbf{Co.} \\
+    \midrule
+    001 & Colliding Blocks & 4 & .17 & .012 & .89 & .25 \\
+    002 & Gradient Descent & 3 & .00 & .003 & .86 & .15 \\
+    003 & Convolution & 3 & .50 & .000 & .94 & .16 \\
+    004 & Eigenvectors & 4 & .17 & .167 & .60 & .10 \\
+    005 & Determinant & 2 & .17 & .000 & .88 & .16 \\
+    006 & CLT & 3 & .33 & .000 & .90 & .18 \\
+    007 & Medical Test & 2 & .50 & .000 & .92 & .19 \\
+    008 & Chain Rule & 3 & .33 & .167 & .68 & .14 \\
+    009 & Integration & 3 & .17 & .000 & .84 & .25 \\
+    010 & Taylor Series & 4 & .17 & .000 & .92 & .24 \\
+    011 & Hairy Ball & 5 & .00 & .000 & .88 & .17 \\
+    012 & Windmill & 4 & .17 & .036 & 1.0 & .16 \\
+    \bottomrule
+\end{tabularx}
+\caption{Per-problem results averaged across all six models (zero-shot). D.\ = Difficulty.}
+\label{tab:per-problem}
+\end{table}
+
+
+\subsection{Prompting Strategy Ablation (Gemma-3-27B)}
+\label{sec:ablation}
+
+Gemma-3-27B is the only model evaluated across all five prompting strategies (3~trials each). Table~\ref{tab:ablation} reports the results.
+
+\begin{table}[H]
+\small
+\begin{tabularx}{\columnwidth}{@{}X c c c c c@{}}
+    \toprule
+    \textbf{Strategy} & \textbf{Ex.} & \textbf{$\Delta$Ex.} & \textbf{VC} & \textbf{Al.} & \textbf{Co.} \\
+    \midrule
+    Zero-Shot & .000 & --- & .000 & .993 & .172 \\
+    Few-Shot & \textbf{.111} & +11.1 & .000 & \textbf{1.00} & \textbf{.200} \\
+    CoT & .000 & +0.0 & .028 & .972 & .159 \\
+    Constraint & .000 & +0.0 & .000 & .995 & .171 \\
+    V-Aware & .000 & +0.0 & \textbf{.000} & \textbf{1.00} & .175 \\
+    \bottomrule
+\end{tabularx}
+\caption{Prompting strategy ablation on Gemma-3-27B (3~trials $\times$ 12~problems). $\Delta$~relative to zero-shot.}
+\label{tab:ablation}
+\end{table}
+
+\begin{tcolorbox}[
+    colframe=locusblue,
+    colback=locuslight,
+    title=Ablation Key Findings
+]
+\begin{enumerate}
+    \item \textbf{Few-shot is the only strategy improving executability} (+11.1~pp), concentrated on MB-006, MB-007, MB-008.
+    \item \textbf{CoT introduces version conflicts} (VCER = 2.8\%) and slightly degrades alignment.
+    \item \textbf{Version-aware prompting eliminates VCER} and achieves perfect heuristic alignment (1.0).
+    \item \textbf{Coverage remains uniformly low} (0.16--0.20) across all strategies.
+\end{enumerate}
+\end{tcolorbox}
+
+
+\subsection{Per-Model Per-Problem Grid}
+\label{sec:grid}
+
+Table~\ref{tab:grid} presents the full executability and coverage grid for the top-performing models.
+
+\begin{table}[H]
+\small
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabularx}{\columnwidth}{@{} l *{4}{>{\centering\arraybackslash}p{0.52cm} >{\centering\arraybackslash}p{0.52cm}} @{}}
+    \toprule
+    & \multicolumn{2}{c}{\textbf{Kimi}} & \multicolumn{2}{c}{\textbf{Q3.5+}} & \multicolumn{2}{c}{\textbf{Q235B}} & \multicolumn{2}{c}{\textbf{Gemma}} \\
+    \cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7} \cmidrule(lr){8-9}
+    & E & C & E & C & E & C & E & C \\
+    \midrule
+    001 & $\bullet$ & .42 & $\circ$ & .27 & $\circ$ & .34 & $\circ$ & .28 \\
+    002 & $\circ$ & .21 & $\circ$ & .17 & $\circ$ & .21 & $\circ$ & .14 \\
+    003 & $\bullet$ & .20 & $\bullet$ & .17 & $\bullet$ & .26 & $\circ$ & .17 \\
+    004 & $\bullet$ & .25 & $\circ$ & .00 & $\circ$ & .13 & $\circ$ & .16 \\
+    005 & $\bullet$ & .24 & $\circ$ & .22 & $\circ$ & .17 & $\circ$ & .12 \\
+    006 & $\bullet$ & .25 & $\bullet$ & .27 & $\circ$ & .25 & $\circ$ & .10 \\
+    007 & $\bullet$ & .32 & $\bullet$ & .23 & $\circ$ & .25 & $\circ$ & .13 \\
+    008 & $\circ$ & .00 & $\bullet$ & .33 & $\bullet$ & .26 & $\circ$ & .19 \\
+    009 & $\circ$ & .36 & $\circ$ & .38 & $\bullet$ & .39 & $\circ$ & .24 \\
+    010 & $\bullet$ & .33 & $\circ$ & .31 & $\circ$ & .27 & $\circ$ & .22 \\
+    011 & $\circ$ & .27 & $\circ$ & .21 & $\circ$ & .24 & $\circ$ & .18 \\
+    012 & $\bullet$ & .34 & $\circ$ & .15 & $\circ$ & .25 & $\circ$ & .14 \\
+    \midrule
+    \textbf{$\bar{x}$} & \textbf{.67} & \textbf{.27} & .33 & .23 & .25 & .25 & .00 & .17 \\
+    \bottomrule
+\end{tabularx}
+\caption{Per-model per-problem grid (zero-shot). E = executability ($\bullet$/$\circ$), C = coverage.}
+\label{tab:grid}
+\end{table}
+
+
+\subsection{Key Observations}
+\label{sec:observations}
+
+\begin{enumerate}
+    \item \textbf{Executability is the primary bottleneck.} Even Kimi-K2.5 renders only $66.7\%$ of problems. The expert-level Hairy Ball theorem (MB-011, difficulty~5) was not rendered by any model.
+
+    \item \textbf{Version conflicts are sparse but concentrated.} MB-004 (Eigenvectors) and MB-008 (Chain Rule) trigger VCER~$= 16.7\%$, both involving transformations that tempt deprecated \texttt{ShowCreation} or \texttt{CONFIG} patterns.
+
+    \item \textbf{Heuristic alignment saturates.} Most models achieve alignment $>0.90$ because keyword detection cannot distinguish correct implementation from mere keyword mentions. This underscores the need for future human review or vision-based evaluation.
+
+    \item \textbf{Coverage is uniformly low.} Average coverage is $0.18$, indicating that LLM-generated Manim code lacks pedagogical richness.
+
+    \item \textbf{Scale $\neq$ proficiency.} Qwen3-235B-A22B (235B parameters) achieves lower executability ($25.0\%$) than Kimi-K2.5, suggesting domain-specific training data matters more than raw scale.
+\end{enumerate}
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why ManiBench Matters}
+
+Existing benchmarks (HumanEval, APPS) measure whether code produces correct \emph{output}~\cite{chen2021humaneval, hendrycks2021apps}. ManiBench measures whether code produces correct \emph{understanding}. This distinction is critical for educational tools, where a silent failure (wrong animation) is worse than a loud failure (runtime error).
+
+\subsection{Limitations and Future Work}
+
+\begin{enumerate}
+    \item \textbf{No Human Evaluation.} All metrics are computed fully automatically. Alignment and Coverage rely on keyword heuristics that detect concept \emph{presence} but cannot verify \emph{correctness}. A structured human review protocol has been designed (Section~\ref{sec:eval-scope}) but not yet conducted.
+
+    \item \textbf{Heuristic Alignment Saturation.} The keyword-based alignment metric saturates near~$1.0$, failing to distinguish correct implementations from code containing relevant keywords. Future work should integrate frame-level video comparison or vision--language model grading.
+
+    \item \textbf{Limited Model Coverage.} Only Gemma-3-27B was evaluated across all five strategies. Extending to frontier models (GPT-4o~\cite{openai2024gpt4o}, Claude~Sonnet~4~\cite{anthropic2025claude}, Gemini~2.5~Pro~\cite{google2025gemini}) is a priority.
+
+    \item \textbf{Pedagogical Validation.} We do not yet validate whether animations actually teach the concept. User studies could address this gap.
+
+    \item \textbf{Scalability.} Moving from 12 to 150+ problems requires annotation infrastructure and community contribution.
+
+    \item \textbf{Reference Code Utilization.} The ${\sim}53{,}000$~lines of analyzed reference code could enable fine-tuning or RAG experiments.
+\end{enumerate}
+
+\subsection{Broader Impact}
+
+ManiBench can be used to: evaluate LLM educational-content generation across model families; develop better prompting strategies (few-shot is most effective for executability); identify systematic failure modes; drive research into Manim API adoption in LLMs; benchmark version-aware code generation using the 145~documented GL$\to$CE incompatibilities; and enable RAG experiments using reference code analysis.
+
+
+%% ═════════════════════════════════════════════════════════════
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have introduced ManiBench, a specialized benchmark for evaluating Manim code generation. By formalizing metrics for syntactic correctness, version compliance, visual-logic alignment, and pedagogical coverage, ManiBench moves beyond simple test-case evaluation to assess whether generated animations actually communicate mathematical concepts.
+
+The 12-problem pilot dataset, backed by comprehensive reference code analysis of ${\sim}53{,}000$~lines of original 3Blue1Brown source code and 145~documented GL$\to$CE incompatibilities, reveals that even the best-performing model (Kimi-K2.5) renders only $66.7\%$ of problems, while coverage of pedagogical elements averages just~$0.18$. Our prompting strategy ablation on Gemma-3-27B shows that few-shot examples are the only strategy to measurably improve executability ($+11.1$~pp), while version-aware prompting effectively eliminates version-conflict errors. The accompanying automated evaluation framework enables reproducible assessment across models and strategies.
+
+With planned expansion to 150--200 problems and integration of vision-based alignment scoring, ManiBench will serve as a foundational resource for advancing LLM-driven educational content creation.
+
+The dataset and evaluation toolkit are publicly available at \url{https://huggingface.co/datasets/nabin2004/ManiBench}.
+
+
+%% ═════════════════════════════════════════════════════════════
+\printbibliography
+
+\end{document}
