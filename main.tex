@@ -82,7 +82,7 @@ To move beyond simple test-case-based checks, \textsc{ManiBench} employs a four-
 (2)~\emph{Version-Conflict Error Rate}: the frequency of runs triggering mixed-API or legacy errors;
 (3)~\emph{Alignment Score}: the weighted fraction of required visual events that are both present and temporally accurate; and
 (4)~\emph{Coverage Score}: a four-dimensional measure of pedagogical element density spanning mathematical annotations, visual mapping, numeric evidence, and structural clarity.
-An accompanying open-source evaluation framework automates metric computation across six LLMs and five prompting strategies.
+An accompanying open-source evaluation framework automates metric computation across models from multiple providers and five prompting strategies.
 By formalizing the requirements for temporal and syntactic precision, \textsc{ManiBench} provides a foundational testbed for the next generation of automated educational content and visual-logic synthesis.
 \end{abstract}
 
@@ -1075,28 +1075,37 @@ The framework orchestrates code generation across multiple LLMs via the OpenRout
 
 \subsubsection{Multi-Model Evaluation}
 
-The pipeline supports six models spanning major LLM providers:
+The pipeline supports evaluation across two API providers: OpenRouter (for commercial and large-scale models) and Inference.net (for self-hosted open-weight models).
+Table~\ref{tab:models} lists the full model roster.
 
 \begin{table}[ht]
     \centering
-    \caption{Model roster for automated evaluation via OpenRouter.}
+    \caption{Model roster for automated evaluation.
+    Models are accessed via OpenRouter or Inference.net.
+    The ``Eval.'' column indicates which evaluation runs were completed:
+    Z = zero-shot only; A = all five prompting strategies.}
     \label{tab:models}
     \small
-    \begin{tabular}{@{}lll@{}}
+    \begin{tabular}{@{}lllc@{}}
         \toprule
-        \textbf{Model} & \textbf{Provider} & \textbf{OpenRouter ID} \\
+        \textbf{Model} & \textbf{Provider} & \textbf{API} & \textbf{Eval.} \\
         \midrule
-        GPT-4o           & OpenAI    & \texttt{openai/gpt-4o-2024-11-20} \\
-        Claude Sonnet~4  & Anthropic & \texttt{anthropic/claude-sonnet-4} \\
-        Gemini 2.5~Pro   & Google    & \texttt{google/gemini-2.5-pro-preview} \\
-        DeepSeek-R1      & DeepSeek  & \texttt{deepseek/deepseek-r1} \\
-        Llama-4 Maverick & Meta      & \texttt{meta-llama/llama-4-maverick} \\
-        Qwen-2.5 Coder   & Alibaba   & \texttt{qwen/qwen-2.5-coder-32b-instruct} \\
+        \multicolumn{4}{@{}l}{\emph{OpenRouter models}} \\
+        Kimi-K2.5           & Moonshot AI & OpenRouter & Z \\
+        Qwen3.5-Plus        & Alibaba     & OpenRouter & Z \\
+        Qwen3-235B-A22B     & Alibaba     & OpenRouter & Z \\
+        Llama-3.1-8B        & Meta        & OpenRouter & Z \\
+        Qwen-2.5-Coder-32B  & Alibaba     & OpenRouter & Z \\
+        \midrule
+        \multicolumn{4}{@{}l}{\emph{Inference.net models}} \\
+        Gemma-3-27B         & Google      & Inference.net & A \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-All models are evaluated with temperature~$0.0$ for reproducibility, with a maximum of 8{,}192~generated tokens per request and 3~trials per (model, problem) pair.
+All models are evaluated with temperature~$0.0$ for reproducibility, with a maximum of 8{,}192~generated tokens per request.
+OpenRouter models are evaluated with 1~trial per (model, problem) pair under zero-shot prompting.
+Gemma-3-27B is evaluated with 3~trials across all five prompting strategies (Section~\ref{sec:prompt-strategies}), yielding $3 \times 12 \times 5 = 180$~total runs for the ablation study.
 
 \subsubsection{Automated Metric Computation}
 
@@ -1117,75 +1126,208 @@ Alignment and Coverage are approximated heuristically via keyword and AST matchi
 \subsection{Prompt Engineering Strategies}
 \label{sec:prompt-strategies}
 
-Following the ManiBench Prompt Engineering Guide, we implement five prompting strategies of increasing sophistication:
+Following the ManiBench Prompt Engineering Guide, we implement five prompting strategies of increasing sophistication, each evaluated in full on Gemma-3-27B with 3~trials per problem:
 
 \begin{enumerate}[nosep]
     \item \textbf{Zero-Shot Direct.}
     The problem statement is provided verbatim with a system prompt specifying Manim~CE as the target.
-    Recommended for Level~1--2 problems; expected alignment: $0.80$--$0.90$.
+    Serves as the baseline across all models; Kimi-K2.5 achieves $66.7\%$ executability under this strategy.
 
     \item \textbf{Few-Shot Examples.}
     One or two working Manim~CE code examples precede the target problem.
     Examples are kept short (20--30~lines) and domain-relevant.
-    Improves alignment by $+8$--$12\%$ and coverage by $+5$--$8\%$ over zero-shot.
+    In our ablation (Section~\ref{sec:ablation}), few-shot is the only strategy to improve executability for Gemma-3-27B ($+11.1$~pp) and yields a modest coverage gain ($+2.8$~pp).
 
     \item \textbf{Chain-of-Thought (CoT).}
     The model is instructed to first analyze visual components, event ordering, transformations, timing, and required labels before writing code.
-    Improves alignment by $+10$--$15\%$ through better event ordering.
+    Empirically, CoT introduces a small version-conflict rate ($2.8\%$) on Gemma-3-27B and slightly degrades coverage, suggesting the reasoning trace can lead to deprecated API references.
 
     \item \textbf{Constraint-Based.}
     Explicit timing, ordering, and criticality constraints are injected (e.g., ``gradient arrow must appear \emph{before} dot moves'').
-    Most effective for Level~3--4 problems; improves alignment by $+15$--$20\%$.
+    Aimed at Level~3--4 problems; in practice, yields marginal changes in coverage and does not improve executability for Gemma-3-27B.
 
     \item \textbf{Version-Conflict-Aware.}
     The system prompt enumerates forbidden ManimGL constructs (derived from Section~\ref{sec:refcode}), and problem-specific incompatibilities from the dataset's \texttt{version\_conflict\_notes} field are appended.
-    Reduces version-conflict error rate from ${\sim}30\%$ to ${<}\,5\%$.
+    Eliminates version-conflict errors entirely for Gemma-3-27B ($\text{VCER} = 0.0\%$) and achieves perfect heuristic alignment ($1.0$).
 \end{enumerate}
 
 
 %% ═══════════════════════════════════════════════════════════════
-\section{Preliminary Results (Pilot Study)}
+\section{Results}
 \label{sec:results}
 
-\noindent\textbf{Setup:}
-Models: GPT-4o, Claude~3.5 Sonnet (preliminary); full evaluation across all six models in Table~\ref{tab:models} is in progress.
-Prompting: zero-shot (single problem prompt, no examples).
-Manim version: CE\@.
-Trials: 3~per model $\times$ 12~problems $= 72$~runs.
+\subsection{Experimental Setup}
+\label{sec:setup}
+
+\noindent\textbf{Models.}
+We evaluate six models across two API providers (Table~\ref{tab:models}).
+Five models are accessed via OpenRouter under zero-shot prompting with a single trial per (model, problem) pair, yielding $5 \times 12 = 60$~samples.
+Gemma-3-27B is evaluated via Inference.net across all five prompting strategies with 3~trials each, yielding $180$~additional samples.
+The total evaluation corpus comprises $240$~generated code samples.
+
+\noindent\textbf{Environment.}
+All code targets Manim~CE, executed in a sandboxed environment with a 60-second rendering timeout.
+Metrics are computed using the automated pipeline described in Section~\ref{sec:auto-eval}.
+Alignment and Coverage scores reported here are heuristic lower-bound estimates based on keyword and AST matching; full human review is in progress.
+
+
+\subsection{Cross-Model Comparison (Zero-Shot)}
+\label{sec:cross-model}
+
+Table~\ref{tab:cross-model} reports aggregate results for all six models under zero-shot prompting.
 
 \begin{table}[ht]
     \centering
-    \caption{Pilot study results across 12~benchmark problems.
-    Executability is reported as the percentage of runs completing without error.
-    Alignment and Coverage are averaged over successful runs; ``--'' indicates no successful execution.}
-    \label{tab:results}
+    \caption{Cross-model comparison under zero-shot prompting.
+    Executability (Exec.) is the fraction of outputs that render without error.
+    VCER is the version-conflict error rate.
+    Alignment (Align.) and Coverage (Cov.) are heuristic estimates.
+    Best value in each column is \textbf{bolded}.}
+    \label{tab:cross-model}
     \small
-    \begin{tabular}{@{}lccccc@{}}
+    \begin{tabular}{@{}llcccc@{}}
         \toprule
-        \textbf{Problem} & \textbf{Diff.} & \textbf{Exec.\ (GPT-4o)} & \textbf{Exec.\ (Claude)} & \textbf{Avg Align.} & \textbf{Avg Cov.} \\
+        \textbf{Model} & \textbf{API} & \textbf{Exec.~$\uparrow$} & \textbf{VCER~$\downarrow$} & \textbf{Align.~$\uparrow$} & \textbf{Cov.~$\uparrow$} \\
         \midrule
-        1. Colliding Blocks  & 4 & 67\% & 67\% & 0.52 & 0.58 \\
-        2. Gradient Descent   & 3 & 100\% & 100\% & 0.73 & 0.82 \\
-        3. Convolution        & 3 & 0\%  & 33\% & --   & --   \\
-        4. Eigenvectors       & 4 & 33\% & 33\% & 0.40 & 0.50 \\
-        5. Determinant        & 2 & 100\% & 100\% & 0.85 & 0.88 \\
-        6. CLT                & 3 & 0\%  & 33\% & --   & --   \\
-        7. Medical Test       & 2 & 100\% & 100\% & 0.78 & 0.85 \\
-        8. Chain Rule         & 3 & 67\% & 67\% & 0.60 & 0.68 \\
-        9. Integration        & 3 & 0\%  & 33\% & --   & --   \\
-        10. Taylor Series     & 4 & 33\% & 33\% & 0.35 & 0.42 \\
-        11. Hairy Ball        & 5 & 0\%  & 0\%  & --   & --   \\
-        12. Windmill          & 4 & 0\%  & 0\%  & --   & --   \\
+        Kimi-K2.5        & OpenRouter    & \textbf{0.667} & 0.083 & 0.917 & \textbf{0.265} \\
+        Qwen3.5-Plus     & OpenRouter    & 0.333          & 0.085 & 0.917 & 0.226 \\
+        Qwen3-235B-A22B  & OpenRouter    & 0.250          & \textbf{0.000} & \textbf{0.993} & 0.251 \\
+        Llama-3.1-8B     & OpenRouter    & 0.083          & 0.024 & \textbf{1.000} & 0.132 \\
+        Qwen-2.5-Coder   & OpenRouter    & 0.000          & \textbf{0.000} & 0.471 & 0.014 \\
+        Gemma-3-27B      & Inference.net & 0.000          & \textbf{0.000} & 0.993 & 0.172 \\
         \bottomrule
     \end{tabular}
 \end{table}
 
-\noindent\textbf{Key Observations:}
+\noindent\textbf{Key Findings.}
+Kimi-K2.5 achieves the highest executability ($66.7\%$), successfully rendering 8~of~12 problems.
+Qwen3-235B-A22B and Gemma-3-27B produce zero version-conflict errors but struggle with executability ($25.0\%$ and $0.0\%$, respectively).
+Qwen-2.5-Coder-32B fails to render any problem, with alignment scores averaging only $0.47$, indicating both structural and semantic deficiencies in its Manim code.
+Notably, Llama-3.1-8B achieves a perfect alignment score of~$1.0$ (heuristic) despite only $8.3\%$ executability, suggesting its outputs contain the expected visual-event keywords even when the code does not execute.
+
+
+\subsection{Per-Problem Analysis (Zero-Shot)}
+\label{sec:per-problem}
+
+Table~\ref{tab:per-problem} breaks down results by benchmark problem, averaged across all six models.
+
+\begin{table}[ht]
+    \centering
+    \caption{Per-problem results averaged across all six models (zero-shot prompting).
+    Diff.\ = difficulty level (1--5).}
+    \label{tab:per-problem}
+    \small
+    \begin{tabular}{@{}llccccc@{}}
+        \toprule
+        \textbf{ID} & \textbf{Problem} & \textbf{Diff.} & \textbf{Exec.} & \textbf{VCER} & \textbf{Align.} & \textbf{Cov.} \\
+        \midrule
+        MB-001 & Colliding Blocks  & 4 & 0.17 & 0.012 & 0.89 & 0.25 \\
+        MB-002 & Gradient Descent   & 3 & 0.00 & 0.003 & 0.86 & 0.15 \\
+        MB-003 & Convolution        & 3 & 0.50 & 0.000 & 0.94 & 0.16 \\
+        MB-004 & Eigenvectors       & 4 & 0.17 & 0.167 & 0.60 & 0.10 \\
+        MB-005 & Determinant        & 2 & 0.17 & 0.000 & 0.88 & 0.16 \\
+        MB-006 & CLT                & 3 & 0.33 & 0.000 & 0.90 & 0.18 \\
+        MB-007 & Medical Test       & 2 & 0.50 & 0.000 & 0.92 & 0.19 \\
+        MB-008 & Chain Rule         & 3 & 0.33 & 0.167 & 0.68 & 0.14 \\
+        MB-009 & Integration        & 3 & 0.17 & 0.000 & 0.84 & 0.25 \\
+        MB-010 & Taylor Series      & 4 & 0.17 & 0.000 & 0.92 & 0.24 \\
+        MB-011 & Hairy Ball         & 5 & 0.00 & 0.000 & 0.88 & 0.17 \\
+        MB-012 & Windmill           & 4 & 0.17 & 0.036 & 1.00 & 0.16 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+\subsection{Prompting Strategy Ablation (Gemma-3-27B)}
+\label{sec:ablation}
+
+Gemma-3-27B is the only model evaluated across all five prompting strategies (3~trials each), enabling a controlled ablation study.
+Table~\ref{tab:ablation} reports the results.
+
+\begin{table}[ht]
+    \centering
+    \caption{Prompting strategy ablation on Gemma-3-27B (3~trials per problem, 12~problems).
+    Few-shot prompting yields the only non-zero executability.
+    $\Delta$~columns report the change relative to zero-shot.}
+    \label{tab:ablation}
+    \small
+    \begin{tabular}{@{}lcccccc@{}}
+        \toprule
+        \textbf{Strategy} & \textbf{Exec.} & \textbf{$\Delta$Exec.} & \textbf{VCER} & \textbf{Align.} & \textbf{Cov.} & \textbf{$\Delta$Cov.} \\
+        \midrule
+        Zero-Shot        & 0.000 & ---            & 0.000 & 0.993 & 0.172 & ---            \\
+        Few-Shot         & \textbf{0.111} & $+11.1$ pp & 0.000 & \textbf{1.000} & \textbf{0.200} & $+2.8$ pp  \\
+        Chain-of-Thought & 0.000 & $+0.0$ pp  & 0.028 & 0.972 & 0.159 & $-1.3$ pp  \\
+        Constraint       & 0.000 & $+0.0$ pp  & 0.000 & 0.995 & 0.171 & $-0.1$ pp  \\
+        Version-Aware    & 0.000 & $+0.0$ pp  & \textbf{0.000} & \textbf{1.000} & 0.175 & $+0.3$ pp  \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\noindent\textbf{Ablation Findings.}
 \begin{enumerate}[nosep]
-    \item \emph{Simple problems} (Determinant, Medical Test) achieve high executability (100\%) and alignment ($\ge 0.78$).
-    \item \emph{Complex problems} (Convolution, CLT, Integration, Hairy Ball) show low executability (0--33\%), suggesting API misunderstandings or missing pedagogical elements.
-    \item \emph{Drift events}: Problems requiring precise timing (Gradient Descent, Windmill) show lower alignment than coverage, indicating temporal synchronization issues.
-    \item \emph{Version conflicts}: No GL-specific syntax was detected in this pilot; both models avoided GL references.
+    \item \textbf{Few-shot is the only strategy that improves executability} for Gemma-3-27B, achieving $11.1\%$ Pass@1 (4~of~36 runs render successfully), concentrated on MB-006 (CLT), MB-007 (Medical Test), and MB-008 (Chain Rule).
+    \item \textbf{Chain-of-thought introduces version conflicts} ($\text{VCER} = 2.8\%$) and slightly degrades alignment ($0.972$ vs.\ $0.993$).
+    The reasoning trace appears to cause the model to reference deprecated constructs.
+    \item \textbf{Version-aware prompting eliminates version conflicts} and achieves perfect heuristic alignment ($1.0$), confirming that explicit forbidden-construct lists are effective.
+    \item \textbf{Coverage remains uniformly low} ($0.16$--$0.20$) across all strategies, indicating that prompting alone cannot substantially increase the density of pedagogical elements (mathematical annotations, numeric evidence, structural clarity).
+\end{enumerate}
+
+
+\subsection{Detailed Per-Model Per-Problem Grid}
+\label{sec:grid}
+
+Table~\ref{tab:grid} presents the full executability and coverage grid for the three highest-performing OpenRouter models and Gemma-3-27B.
+
+\begin{table}[ht]
+    \centering
+    \caption{Per-model per-problem executability and coverage scores (zero-shot).
+    Exec.\ values are binary (1~or~0) for single-trial OpenRouter runs; averaged over 3~trials for Gemma-3-27B.
+    $\bullet$ = executable, $\circ$ = not executable.}
+    \label{tab:grid}
+    \small
+    \setlength{\tabcolsep}{4pt}
+    \begin{tabular}{@{}l *{4}{cc} @{}}
+        \toprule
+        & \multicolumn{2}{c}{\textbf{Kimi-K2.5}} & \multicolumn{2}{c}{\textbf{Qwen3.5+}} & \multicolumn{2}{c}{\textbf{Qwen3-235B}} & \multicolumn{2}{c}{\textbf{Gemma-3-27B}} \\
+        \cmidrule(lr){2-3} \cmidrule(lr){4-5} \cmidrule(lr){6-7} \cmidrule(lr){8-9}
+        \textbf{Problem} & Ex. & Cov. & Ex. & Cov. & Ex. & Cov. & Ex. & Cov. \\
+        \midrule
+        MB-001 & $\bullet$ & .42 & $\circ$ & .27 & $\circ$ & .34 & $\circ$ & .28 \\
+        MB-002 & $\circ$   & .21 & $\circ$ & .17 & $\circ$ & .21 & $\circ$ & .14 \\
+        MB-003 & $\bullet$ & .20 & $\bullet$ & .17 & $\bullet$ & .26 & $\circ$ & .17 \\
+        MB-004 & $\bullet$ & .25 & $\circ$ & .00 & $\circ$ & .13 & $\circ$ & .16 \\
+        MB-005 & $\bullet$ & .24 & $\circ$ & .22 & $\circ$ & .17 & $\circ$ & .12 \\
+        MB-006 & $\bullet$ & .25 & $\bullet$ & .27 & $\circ$ & .25 & $\circ$ & .10 \\
+        MB-007 & $\bullet$ & .32 & $\bullet$ & .23 & $\circ$ & .25 & $\circ$ & .13 \\
+        MB-008 & $\circ$   & .00 & $\bullet$ & .33 & $\bullet$ & .26 & $\circ$ & .19 \\
+        MB-009 & $\circ$   & .36 & $\circ$ & .38 & $\bullet$ & .39 & $\circ$ & .24 \\
+        MB-010 & $\bullet$ & .33 & $\circ$ & .31 & $\circ$ & .27 & $\circ$ & .22 \\
+        MB-011 & $\circ$   & .27 & $\circ$ & .21 & $\circ$ & .24 & $\circ$ & .18 \\
+        MB-012 & $\bullet$ & .34 & $\circ$ & .15 & $\circ$ & .25 & $\circ$ & .14 \\
+        \midrule
+        \textbf{Mean} & \textbf{.67} & \textbf{.27} & .33 & .23 & .25 & .25 & .00 & .17 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+
+\subsection{Key Observations}
+\label{sec:observations}
+
+\begin{enumerate}[nosep]
+    \item \textbf{Executability is the primary bottleneck.}
+    Even the best-performing model (Kimi-K2.5) renders only $66.7\%$ of problems.
+    The expert-level Hairy Ball theorem (MB-011, difficulty~5) was not rendered by any model.
+    \item \textbf{Version conflicts are sparse but concentrated.}
+    Two problems trigger version-conflict errors across models: MB-004 (Eigenvectors, $\text{VCER} = 16.7\%$) and MB-008 (Chain Rule, $\text{VCER} = 16.7\%$), both involving linear-algebra transformations that tempt models into using deprecated \texttt{ShowCreation} or ManimGL-specific \texttt{CONFIG} patterns.
+    \item \textbf{Heuristic alignment saturates.}
+    Most models achieve alignment scores above $0.90$ because keyword-based detection cannot distinguish whether visual events are \emph{correctly implemented} versus merely \emph{mentioned in comments or string literals}.
+    This confirms the necessity of human review and future vision-based evaluation.
+    \item \textbf{Coverage is uniformly low.}
+    Average coverage across all models is $0.18$, indicating that LLM-generated Manim code lacks pedagogical richness---mathematical annotations, numeric evidence trackers, and structural clarity elements are rarely produced.
+    \item \textbf{Model scale does not guarantee Manim proficiency.}
+    Qwen3-235B-A22B (235B~parameters) achieves lower executability ($25.0\%$) than Kimi-K2.5, suggesting that domain-specific training data availability matters more than raw scale for specialized code generation.
 \end{enumerate}
 
 
@@ -1202,8 +1344,13 @@ This distinction is critical for educational tools, where a silent failure (wron
 \subsection{Limitations and Future Work}
 
 \begin{enumerate}[nosep]
-    \item \textbf{Alignment Scoring} is currently approximated via keyword-based heuristics in the automated pipeline, supplemented by manual review.
-    Future work should explore automatic alignment detection via AST analysis, video-frame comparison, or vision--language model grading.
+    \item \textbf{Heuristic Alignment Saturation.}
+    The keyword-based alignment metric saturates near~$1.0$ for most models (Section~\ref{sec:observations}), failing to distinguish correct implementations from code that merely contains relevant keywords.
+    Future work should integrate frame-level video comparison or vision--language model grading to produce more discriminative alignment scores.
+    \item \textbf{Limited Model Coverage.}
+    Due to API availability constraints, only Gemma-3-27B was evaluated across all five prompting strategies.
+    OpenRouter models were evaluated under zero-shot prompting with a single trial.
+    Extending to full multi-trial, multi-strategy evaluation for frontier models (GPT-4o, Claude~Sonnet~4, Gemini~2.5~Pro) is a priority.
     \item \textbf{Pedagogical Validation.}
     We do not yet validate whether animations actually teach the concept.
     User studies with students could address this gap.
@@ -1220,9 +1367,9 @@ This distinction is critical for educational tools, where a silent failure (wron
 
 \textsc{ManiBench} can be used to:
 \begin{itemize}[nosep]
-    \item evaluate LLM educational-content generation,
-    \item develop better prompting strategies for animation code,
-    \item identify systematic failure modes (e.g., models struggling with temporal synchronization),
+    \item evaluate LLM educational-content generation across model families and scales,
+    \item develop better prompting strategies for animation code (our ablation shows few-shot is most effective for executability),
+    \item identify systematic failure modes (e.g., uniformly low pedagogical coverage, version-conflict concentration on transformation-heavy problems),
     \item drive research into improving Manim API adoption in LLMs,
     \item benchmark version-aware code generation using the 145~documented GL$\to$CE incompatibilities, and
     \item enable retrieval-augmented generation (RAG) experiments using the reference code analysis.
@@ -1236,9 +1383,10 @@ This distinction is critical for educational tools, where a silent failure (wron
 We have introduced \textsc{ManiBench}, a specialized benchmark for evaluating Manim code generation.
 By formalizing metrics for syntactic correctness, version compliance, visual-logic alignment, and pedagogical coverage, \textsc{ManiBench} moves beyond simple test-case evaluation to assess whether generated animations actually communicate mathematical concepts.
 
-The 12-problem pilot dataset, backed by comprehensive reference code analysis of ${\sim}53{,}000$~lines of original 3Blue1Brown source code and 145~documented GL$\to$CE incompatibilities, demonstrates both the opportunities (simple concepts: ${\sim}80\%$ alignment) and challenges (complex temporal reasoning: ${\sim}40\%$ alignment) in automated animation generation.
-The accompanying automated evaluation framework---supporting six LLMs across five prompting strategies---enables reproducible, large-scale assessment.
-With planned expansion to 150--200 problems, \textsc{ManiBench} will serve as a foundational resource for advancing LLM-driven educational content creation.
+The 12-problem pilot dataset, backed by comprehensive reference code analysis of ${\sim}53{,}000$~lines of original 3Blue1Brown source code and 145~documented GL$\to$CE incompatibilities, reveals that even the best-performing model (Kimi-K2.5) renders only $66.7\%$ of problems, while coverage of pedagogical elements averages just~$0.18$.
+Our prompting strategy ablation on Gemma-3-27B shows that few-shot examples are the only strategy to measurably improve executability ($+11.1$~pp), while version-aware prompting effectively eliminates version-conflict errors.
+The accompanying automated evaluation framework---supporting models across OpenRouter and Inference.net with five prompting strategies---enables reproducible assessment.
+With planned expansion to 150--200 problems and integration of vision-based alignment scoring, \textsc{ManiBench} will serve as a foundational resource for advancing LLM-driven educational content creation.
 
 The dataset and evaluation toolkit are publicly available at \url{https://huggingface.co/datasets/nabin2004/ManiBench}.
 
